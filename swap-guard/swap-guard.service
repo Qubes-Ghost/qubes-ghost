@@ -1,0 +1,6 @@
+[Unit]
+Description=swap guard (detect and wipe any swap that reappears)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/swap-guard.sh

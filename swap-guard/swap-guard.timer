@@ -1,0 +1,12 @@
+[Unit]
+Description=swap guard timer
+
+[Timer]
+OnBootSec=5min
+# Base cadence every 6h, but add up to 3h of random jitter so the check time is
+# not predictable. Install with: systemctl enable --now swap-guard.timer
+OnUnitActiveSec=6h
+RandomizedDelaySec=3h
+
+[Install]
+WantedBy=timers.target
