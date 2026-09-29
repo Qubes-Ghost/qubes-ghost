@@ -55,7 +55,7 @@ In one line: **prior art makes the system amnesic or the disk deniable; Ghost ma
 6. When finished, you reconnect the media and **save** the chosen qubes back to the encrypted volume (`qvm-backup`, with a content-verified, hash-manifested archive).
 7. A **teardown** step removes the RAM-resident qubes, scrubs logs and journald, and asserts post-conditions (no volumes remain in the RAM pool, the vault is off, swap is inactive). Then you power off; the `tmpfs` — and everything in it — evaporates.
 
-The internal disk is never written with qube data. Sensitive material exists only on the removable volume, only while it is attached, and its passphrase is never seen by dom0.
+The internal disk is never written with qube data. Sensitive material exists only on the removable volume, only while it is attached, and the *volume* passphrase is never seen by dom0. (The backup-archive passphrase is a separate secret and does pass through dom0 during restore until paranoid mode works — see the threat model.)
 
 ---
 
@@ -79,9 +79,9 @@ Four dom0 scripts, coordinated by a single lock so they never run concurrently:
 | `ghost-ram-pool.sh` | Disables and masks swap, mounts a `noswap` `tmpfs`, registers it as a Qubes storage pool. Fails closed if the kernel lacks `noswap` support or if swap cannot be guaranteed off. |
 | `ghost-load.sh` | Enforces the vault is an offline DispVM, attaches the media, waits for the encrypted volume to be mounted *inside the vault*, restores selected qubes into the RAM pool, verifies **each restored volume actually landed in the RAM pool** (aborts and removes them if not), then detaches the media only after a proven dismount. |
 | `ghost-save.sh` | Reverse path: attach, save selected qubes to a uniquely-named directory on the volume, verify the archive, write a `sha256` manifest, mark `.done` only after verification, detach only after proven dismount. |
-| `ghost-teardown.sh` | Finds every qube with any volume in the RAM pool, shuts them down and removes them, scrubs logs / journald / shell history of qube names, discards swap-backing storage, and asserts sterility post-conditions before you power off. |
+| `ghost-teardown.sh` | Finds every qube with any volume in the RAM pool, shuts them down and removes them, overwrites (not just unlinks) logs / journald / shell history that name the qubes, removes the RAM pool and unmounts its tmpfs, and asserts sterility post-conditions before you power off. Swap itself is kept off by `ghost-ram-pool.sh` and the separate swap-guard timer, not by teardown. |
 
-Design principles throughout: **fail closed** (any ambiguity aborts rather than risks a leak), **prove before destroy** (media is detached only after a confirmed dismount, even on the error path), **verify placement** (every restored/created volume is checked to be in RAM, not on disk), and **the passphrase never enters dom0.**
+Design principles throughout: **fail closed** (any ambiguity aborts rather than risks a leak), **prove before destroy** (media is detached only after a confirmed dismount, even on the error path), **verify placement** (every restored/created volume is checked to be in RAM, not on disk), and **the volume passphrase never enters dom0** (it is typed inside the offline vault). Note this is the *volume* passphrase; the separate *backup-archive* passphrase used by `qvm-backup-restore` is entered in dom0 today, because paranoid-mode restore does not yet work — see the threat model.
 
 Every script is heavily commented so that each command is transparent — you should be able to read exactly what touches disk, what touches the vault, and what is asserted before anything is destroyed.
 

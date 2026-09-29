@@ -2,11 +2,15 @@
 Description=swap guard timer
 
 [Timer]
-OnBootSec=5min
-# Base cadence every 6h, but add up to 3h of random jitter so the check time is
-# not predictable. Install with: systemctl enable --now swap-guard.timer
-OnUnitActiveSec=6h
-RandomizedDelaySec=3h
+# Check shortly after boot (a reboot or update is the usual way swap comes back)
+# and then hourly. The point of this guard is a SHORT blind window, not surprise:
+# the shorter the interval, the less time swap can sit active before it is caught.
+# A small randomized delay only avoids every timer firing on the same second; it
+# is not a secrecy measure, so it is kept small rather than large.
+OnBootSec=2min
+OnUnitActiveSec=1h
+RandomizedDelaySec=2min
+# Install with: systemctl enable --now swap-guard.timer
 
 [Install]
 WantedBy=timers.target
