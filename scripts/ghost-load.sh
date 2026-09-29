@@ -108,6 +108,32 @@ done
 echo "== 3) backups on the volume:"; qvm-run --user root --pass-io "$VAULT" "ls -la $BACKDIR" || { echo "no $BACKDIR"; exit 1; }
 read -rp "Directory/archive to restore: " ARC
 
+# --- Forward-only: refuse anything but the newest completed save -----------
+# Restoring an older archive does not merely lose continuity. For a messenger
+# with a forward-only ratchet it puts the ratchet key back to its value at time
+# T, and a peer only ratchets forward when it sees a NEW public key from us. It
+# therefore never re-ratchets, post-compromise security never engages, and
+# anyone who captured the state at T keeps reading until a manual re-handshake.
+# Save directories are named with a leading timestamp, so the newest one that
+# carries the .done marker sorts last.
+NEWEST=$(qvm-run --user root --pass-io -q "$VAULT" \
+    "for d in $BACKDIR/*/; do [ -e \"\$d/.done\" ] && basename \"\$d\"; done | sort | tail -1" 2>/dev/null || true)
+PICKED=${ARC%%/*}
+if [ -n "$NEWEST" ] && [ -n "$PICKED" ] && [ "$PICKED" != "$NEWEST" ]; then
+    echo "REFUSING: '$PICKED' is not the newest completed save ('$NEWEST')."
+    echo "  Restoring an older save rolls a forward-only ratchet backwards and pins it"
+    echo "  at that point: peers stop re-ratcheting and past state stays usable to anyone"
+    echo "  who holds it. Restore the newest save instead."
+    if [ "${GHOST_ALLOW_ROLLBACK:-}" = "i-understand" ]; then
+        echo "  GHOST_ALLOW_ROLLBACK is set. Continuing anyway. Re-handshake every"
+        echo "  ratcheting account afterwards; do not assume the sessions are safe."
+    else
+        echo "  If you really need this (the newest save is damaged), re-run with"
+        echo "  GHOST_ALLOW_ROLLBACK=i-understand and plan to re-handshake afterwards."
+        exit 1
+    fi
+fi
+
 # --- 4) Restore INTO the RAM pool ---------------------------------------
 # Qubes 4.x `qvm-backup-restore` has no --pool flag, so we temporarily point
 # ALL default pools at "ghost", restore, then restore the previous settings.

@@ -105,6 +105,14 @@ The mirror-image risk is Ghost's own, so it is stated plainly. Saving a qube and
 later is fine while the newest snapshot is the one restored. Restore an **older** archive, after
 a crash or from a duplicated volume, and the ratchet has been moved backwards.
 
+That is worse than losing continuity. A rollback puts the ratchet key back to its value at time
+T, and a peer only ratchets forward when it sees a new public key from us. After a rollback it
+never sees one, so post-compromise security never engages: whoever captured the state at T, by
+compromising the networked qube during a session or through a compelled unlock, keeps reading
+indefinitely until the accounts are re-handshaked by hand. A rollback does not lose history, it
+pins the ratchet at the point of compromise. That sharper statement is the reviewer's, and it is
+more accurate than the one this project started with.
+
 This was tested rather than assumed. Three members in a group, one sender, one reader, one
 control who is never rolled back. State directory of the reader copied, more messages sent,
 second copy taken, then the first copy restored over the reader's state and the sender kept
@@ -115,7 +123,19 @@ the control member is what caught it, which is why the harness now refuses to dr
 until delivery is proven first.
 
 So the rule is: **workload qubes are saved forward only, and never restored from an older
-archive.** `ghost-save.sh` writes to a uniquely named directory each time for this reason.
+archive.** Both scripts now enforce it rather than only documenting it.
+
+`ghost-load.sh` refuses any save directory that is not the newest completed one. There is an
+environment-variable override for the case where the newest save is damaged and an older one is
+all you have, and it prints what it costs: re-handshake every ratcheting account afterwards, and
+do not assume the sessions are safe.
+
+`ghost-save.sh` writes to a uniquely named directory each time so a bad save cannot overwrite a
+good one, and then prunes older completed saves down to a small window, two by default. Left
+alone those directories accumulate, and every one of them opens with the same passphrase, which
+is a stack of restorable earlier states rather than an archive. Pruning runs only after the new
+save has been verified and marked complete, so nothing is removed until its replacement is proven
+good, and the removed archives are overwritten before being unlinked.
 
 Tested on SimpleX. Matrix/Megolm is a different construction and is being tested separately;
 no claim is made about it by analogy.

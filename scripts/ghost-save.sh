@@ -91,6 +91,32 @@ vrun "cd $DEST && sha256sum '$ARC' > manifest.sha256 && stat -c '%s %n' '$ARC' >
 vrun "touch $DEST/.done && sync"                          # mark complete ONLY now
 echo "verified: $ARC (+manifest)"
 
+# --- 4b) Prune older saves ------------------------------------------------
+# Unique per-save directories stop a bad save overwriting a good one, but left
+# alone they pile up, and every one of them opens with the same passphrase. That
+# is a rollback buffet: a stack of restorable earlier states, each of which would
+# pin a forward-only ratchet at its own point in time (see ghost-load.sh). Keep a
+# small window instead. Pruning happens ONLY after the new save is verified and
+# marked .done, so nothing is destroyed until the replacement is proven good.
+KEEP="${GHOST_KEEP_SAVES:-2}"
+case "$KEEP" in ''|*[!0-9]*) echo "GHOST_KEEP_SAVES must be a number"; exit 1 ;; esac
+[ "$KEEP" -ge 1 ] || { echo "GHOST_KEEP_SAVES must be at least 1"; exit 1; }
+echo "== 4b) pruning old saves (keeping newest $KEEP):"
+OLD=$(vrun "for d in $BACKDIR/*/; do [ -e \"\$d/.done\" ] && basename \"\$d\"; done | sort | head -n -$KEEP" 2>/dev/null || true)
+if [ -n "${OLD// /}" ]; then
+    for d in $OLD; do
+        # Overwrite the archive before unlinking: the volume is encrypted, but a
+        # removed file can still sit in free space inside it until reused.
+        if vrun "cd $BACKDIR/$d 2>/dev/null && { command -v shred >/dev/null && shred -n1 -u ./* 2>/dev/null || rm -f ./*; } ; cd / && rm -rf $BACKDIR/$d && sync"; then
+            echo "  removed: $d"
+        else
+            echo "  !! could not remove: $d"
+        fi
+    done
+else
+    echo "  nothing to prune"
+fi
+
 # --- 5) Close up ----------------------------------------------------------
 echo "== 5) dismount + detach + shut vault:"
 safe_detach || exit 1
