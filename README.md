@@ -154,19 +154,47 @@ Please read Qubes' own security guidance and the VeraCrypt documentation on the 
 
 ## Roadmap
 
-1. ~~**Validate the ghost cycle** on a throwaway install~~ - **done**: the full cycle (pool -> load -> air-gapped work -> save -> teardown -> reboot -> reload intact) has been proven end-to-end on a measured-boot base.
-2. **Adopt an amnesic dom0 session.** Replace the separate RAM pool with a read-only root plus
-   an ephemeral overlay, following the live-mode work linked above. The disk-backed encrypted
-   overlay variant is the one that fits here: it is bounded by disk rather than RAM, which the
-   RAM pool is not, and it removes the log/metadata scrubbing problem by construction rather
-   than by cleaning up afterwards. Not yet validated on real hardware, so nothing in this repo
-   depends on it yet.
-3. **Clean reinstall onto minimal templates** - the validation polygon is never promoted to production; the real base is rebuilt fresh, minimal from the start.
-4. **Reproducible base install** - ship the base as code, in two complementary forms: a **generic kickstart** for the Qubes installer (unattended install of the minimal base, scripts, vault DispVM, swap-guard - no secrets baked in) and a **Salt formula** (qusal-style) that converges an existing install to the same state. Both are meant to be published; anyone can layer their own private configuration on top. Boot-layer material and personal volumes are deliberately *not* part of either. This step also folds in **conservative dom0 slimming** (drop unneeded packages/services following the community's [minimize-dom0 work](https://forum.qubes-os.org/t/how-to-minimize-dom0/20945)) - a smaller dom0 means fewer log surfaces to scrub and less code exposed to the restore stream; we take the tested subset, not the radical experiments.
-5. **Self-hosted service backends** - run your own backends for the services you care about, inside isolated qubes, with split-GPG / split-SSH, so no plaintext keys ever sit in an online qube.
-6. **Second boot layer: detached LUKS header** - the next major milestone. This release deliberately ships *without* it: the detached-header base is proven in emulation but has **not yet** run the full ghost cycle on real hardware, and we do not publish claims we have not validated. *It is genuinely different work, not a copy-paste; only Layer B is shared.*
-7. **Network-delivered headers** - fetch the disk-open material over the network instead of from physical media.
-8. **Fully modular sources** - the two independent ingredients (the *headers* that open the system, and the *encrypted volume with your qubes*) should each be loadable **either from physical media or over the network**, in any combination: all-physical, all-network, or mixed. The audited minimal-template image is the keystone that makes this composition safe.
+**1. Amnesic dom0 session.** Raise `dom0_mem`, re-sign `/boot` where the platform measures it,
+install the live-mode modes linked above. The disk-backed encrypted overlay is the variant that
+fits here: it is bounded by disk rather than RAM. First thing to check, and the main risk of the
+whole redesign: whether `qvm-backup-restore` survives a read-only root. There is a sqlite
+database, libvirt state and permissions involved, and if it does not survive, the qubes have to
+reach the session some other way. Better to learn that before rewriting anything else.
+
+**2. Full cycle on top of the amnesic session.** The same load, work, save, teardown, reboot
+cycle that is already proven, but with no pool of our own: qubes are restored into the default
+pool, which is itself ephemeral. Verify sterility across a reboot.
+
+**3. Simplify the scripts.** `ghost-ram-pool.sh` goes away. `ghost-load.sh` loses the pool
+handling. `ghost-teardown.sh` shrinks to post-condition checks. This is not cosmetic: less code
+is fewer failure paths, and seven of them were just closed.
+
+**4. Reproducible base install.** A generic kickstart for the Qubes installer and a Salt formula
+that converges an existing install, as before, except the base they build now includes the
+amnesic modes rather than a pool of our own. No secrets in either. This also folds in
+conservative dom0 slimming, following the community's
+[minimize-dom0 work](https://forum.qubes-os.org/t/how-to-minimize-dom0/20945).
+
+**5. Crypto stack.** A chain node and its indexer do not fit an amnesic session, and should not
+be forced into one: they run for days, and the media cannot be detached while they do. The node
+lives on its own encrypted volume and holds no keys, only a copy of the public chain. The wallet
+stays in the amnesic session and reaches the node over qrexec, so the wallet qube needs no
+network at all. What is secret is the keys and which addresses are yours, not the blockchain.
+
+**6. Second boot layer: detached LUKS header.** Still the next frontier, and still deliberately
+unshipped: that base is proven in emulation but has not run the full cycle on real hardware, and
+we do not publish claims we have not validated. Only the workload layer is shared between the
+two boot layers; this is genuinely separate work.
+
+**7. Network-delivered headers.** Fetch the material that opens the system over the network
+instead of from physical media.
+
+**8. Fully modular sources.** The two independent ingredients, the headers that open the system
+and the encrypted volume holding your qubes, should each be loadable either from physical media
+or over the network, in any combination.
+
+Steps 1 and 2 come before step 3 on purpose. Deleting working code for a design that has not run
+yet would be the wrong order.
 
 ---
 
