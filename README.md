@@ -96,7 +96,7 @@ See **[`DEPLOYMENT.md`](DEPLOYMENT.md)** for a simple, step-by-step walkthrough:
 **In scope:**
 - Forensic examination of the powered-off internal disk showing no evidence of the session's qubes.
 - Preventing sensitive qube memory from being paged to persistent swap.
-- Preventing dom0 logs from recording sensitive qube names/operations.
+- Preventing dom0 logs from retaining sensitive qube names/operations — by not writing them where that is possible, and by scrubbing otherwise (see the note on storage-stack verifiability below for why the distinction matters).
 - Plausible deniability about the *existence* of sensitive data, when a hidden volume is used.
 - Air-gapping the vault while working, so a compromise during the session cannot silently read the still-attached secret store.
 
@@ -104,6 +104,7 @@ See **[`DEPLOYMENT.md`](DEPLOYMENT.md)** for a simple, step-by-step walkthrough:
 - Cold-boot / DMA attacks against RAM while the machine is running or immediately after power-off. RAM holds plaintext during a session by design.
 - A compromised dom0 or a malicious template. Qubes Ghost trusts the base install; it does not defend a base that is already backdoored.
 - **The vault contents are trusted input.** The raw USB device is never attached to dom0 — it stays behind the usual USB qube and only the block device is passed to the offline vault, where the volume is opened. However, the backup *archive stream* is currently parsed by `qvm-backup-restore` running **in dom0**: Qubes' "paranoid mode" (restore inside a DisposableVM) does not yet work for this flow (the DispVM's volume import is refused by the default qrexec policy — see Known limitations). The archive format is authenticated with the backup passphrase, but dom0's parser does see the archive before full verification. If an adversary can both tamper with your media *and* knows your backup passphrase, the restore path is attack surface. Until paranoid mode is wired up, treat the volume as trusted input.
+- **Verifying what the storage stack actually did.** Between a shell command and the medium there are filesystem caches, journaling, the SSD's FTL and wear levelling, TRIM behaviour and firmware bugs. When something is written and later deleted, an outside observer cannot establish which of three things happened: the data persisted despite the delete, it was genuinely discarded after a TRIM, or it never left a volatile cache at all. No userspace tool closes that gap, and a qualified examiner will look at every one of those layers. This is why the log scrubbing in `ghost-teardown.sh` is defence in depth against third-party leftovers and **not** the mechanism this design rests on. The mechanism is that the sensitive qubes live in a `tmpfs` pool and on removable media, so for them the write is never issued in the first place; and where the internal disk is encrypted, whatever the FTL may still retain is ciphertext, useless against the powered-off threat model. Credit to *qubist* on the Qubes forum for pressing this point.
 - Coercion where revealing the *outer* volume is insufficient. Deniability is only as strong as your operational discipline and your platform's Layer A.
 - Anything the underlying platform's boot layer cannot guarantee (see Layer A).
 
