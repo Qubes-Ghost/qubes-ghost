@@ -1,5 +1,5 @@
 #!/bin/bash
-# ghost-save.sh — save selected RAM-resident qubes back onto the encrypted volume.
+# ghost-save.sh - save selected RAM-resident qubes back onto the encrypted volume.
 #
 # FLOW (mirror of ghost-load):
 #   attach media -> open the volume INSIDE the vault -> back up chosen qubes to a
@@ -45,7 +45,7 @@ safe_detach(){                          # identical guarantee as in ghost-load.s
             qvm-run --user root --pass-io -q "$VAULT" "! mountpoint -q $VMNT" 2>/dev/null && { MOUNTED=0; break; }; sleep 3
         done
     fi
-    [ "$MOUNTED" = 1 ] && { echo "!!! VOLUME DID NOT DISMOUNT — media left attached, do NOT pull it"; return 1; }
+    [ "$MOUNTED" = 1 ] && { echo "!!! VOLUME DID NOT DISMOUNT - media left attached, do NOT pull it"; return 1; }
     [ -n "$DEV" ] && qvm-block detach "$VAULT" "$DEV" >/dev/null 2>&1 && DEV=""
     return 0
 }
@@ -74,7 +74,7 @@ vrun "for d in $BACKDIR/*/; do [ -e \"\$d/.done\" ] || echo \"  incomplete: \$d\
 STAMP="$(date +%Y%m%d-%H%M%S)-$(head -c3 /dev/urandom|od -An -tx1|tr -d ' \n')"
 DEST="$BACKDIR/$STAMP"
 # mkdir runs as root inside the vault, but qubes' backup writes as the vault's
-# user — so chown the new dir to the user, or the write fails with EACCES.
+# user - so chown the new dir to the user, or the write fails with EACCES.
 vrun "[ ! -e $DEST ] && mkdir $DEST && chown user:user $DEST" || { echo "destination busy?!"; exit 1; }
 
 # --- 3) Back up -----------------------------------------------------------

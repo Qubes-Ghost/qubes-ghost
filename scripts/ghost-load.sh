@@ -1,5 +1,5 @@
 #!/bin/bash
-# ghost-load.sh — restore selected qubes from the encrypted volume INTO the RAM pool.
+# ghost-load.sh - restore selected qubes from the encrypted volume INTO the RAM pool.
 #
 # FLOW:
 #   attach media -> you open the encrypted volume INSIDE the offline vault ->
@@ -25,11 +25,11 @@ export TMPDIR="$POOLMNT/tmp"            # force restore staging into RAM, not di
 mkdir -p "$TMPDIR" 2>/dev/null || true
 
 # Guard: the pool must exist and truly be tmpfs, else data would hit the disk.
-mountpoint -q "$POOLMNT" || { echo "RAM pool not mounted — run ghost-ram-pool.sh"; exit 1; }
-[ "$(findmnt -n -o FSTYPE --mountpoint "$POOLMNT")" = tmpfs ] || { echo "pool backing is not tmpfs — stop"; exit 1; }
+mountpoint -q "$POOLMNT" || { echo "RAM pool not mounted - run ghost-ram-pool.sh"; exit 1; }
+[ "$(findmnt -n -o FSTYPE --mountpoint "$POOLMNT")" = tmpfs ] || { echo "pool backing is not tmpfs - stop"; exit 1; }
 case ",$(findmnt -n -o OPTIONS --mountpoint "$POOLMNT")," in
     *,noswap,*) ;;
-    *) echo "ERROR: $POOLMNT is mounted without 'noswap' — its pages could reach swap. Stopping."; exit 1 ;;
+    *) echo "ERROR: $POOLMNT is mounted without 'noswap' - its pages could reach swap. Stopping."; exit 1 ;;
 esac
 # The placement checks below compare pool NAMES. That is only meaningful if the name
 # "ghost" is bound to the tmpfs we just verified: a stale or planted registration of
@@ -46,7 +46,7 @@ GPOOL_DIR=$(qvm-pool info ghost 2>/dev/null | awk '$1=="dir_path"{print $2; exit
 vol_pool(){ qvm-volume info "$1:$2" 2>/dev/null | awk '$1=="pool"{print $2}'; }
 
 # --- Enforce the vault is safe BEFORE attaching any media -----------------
-[ "$(qvm-prefs "$VAULT" netvm 2>/dev/null)" = "" ] || { echo "ERROR: $VAULT has a netvm — air-gap broken"; exit 1; }
+[ "$(qvm-prefs "$VAULT" netvm 2>/dev/null)" = "" ] || { echo "ERROR: $VAULT has a netvm - air-gap broken"; exit 1; }
 [ "$(qvm-prefs "$VAULT" klass 2>/dev/null)" = DispVM ] || { echo "ERROR: $VAULT is not a DispVM"; exit 1; }
 
 DEV=""; MOUNTED=0
@@ -61,7 +61,7 @@ safe_detach(){
         done
     fi
     if [ "$MOUNTED" = 1 ]; then
-        echo "!!! VOLUME DID NOT DISMOUNT — media left attached, resolve by hand"; return 1
+        echo "!!! VOLUME DID NOT DISMOUNT - media left attached, resolve by hand"; return 1
     fi
     if [ -n "$DEV" ]; then
         qvm-block detach "$VAULT" "$DEV" >/dev/null 2>&1 || true
@@ -77,7 +77,7 @@ safe_detach(){
         done
     fi
     if [ -n "$DEV" ]; then
-        echo "!!! MEDIA DID NOT DETACH ($DEV) — still attached to $VAULT."
+        echo "!!! MEDIA DID NOT DETACH ($DEV) - still attached to $VAULT."
         echo "    The air-gap is NOT in place. Resolve by hand before working."
         return 1
     fi
@@ -114,16 +114,16 @@ read -rp "Directory/archive to restore: " ARC
 echo "== 4) restore: redirecting default pools to 'ghost' for the restore"
 declare -A OLDP
 # Defined before use. The old version used `[ cond ] && A || B`, which falls through
-# to B whenever A fails — so a failing `--default` wrote the literal string
+# to B whenever A fails - so a failing `--default` wrote the literal string
 # "__unset__" into the preference. An explicit if/else cannot do that.
 restore_pools(){
     for prop in "${!OLDP[@]}"; do
         if [ "${OLDP[$prop]}" = __unset__ ]; then
             qubes-prefs --default "$prop" 2>/dev/null \
-                || echo "WARNING: could not reset $prop to its default — check it by hand"
+                || echo "WARNING: could not reset $prop to its default - check it by hand"
         else
             qubes-prefs "$prop" "${OLDP[$prop]}" 2>/dev/null \
-                || echo "WARNING: could not restore $prop to '${OLDP[$prop]}' — check it by hand"
+                || echo "WARNING: could not restore $prop to '${OLDP[$prop]}' - check it by hand"
         fi
     done
 }
@@ -132,11 +132,11 @@ for prop in default_pool default_pool_root default_pool_private default_pool_vol
     # Swallowing this failure was a fail-open: the restore would then place volumes
     # in the on-disk default pool while the script carried on as if redirected.
     qubes-prefs "$prop" ghost 2>/dev/null || {
-        echo "ERROR: could not point $prop at pool 'ghost' — refusing to restore"
+        echo "ERROR: could not point $prop at pool 'ghost' - refusing to restore"
         restore_pools; exit 1; }
     NOWP=$(qubes-prefs "$prop" 2>/dev/null || true)
     [ "$NOWP" = ghost ] || {
-        echo "ERROR: $prop reads back as '${NOWP:-empty}', not 'ghost' — refusing to restore"
+        echo "ERROR: $prop reads back as '${NOWP:-empty}', not 'ghost' - refusing to restore"
         restore_pools; exit 1; }
 done
 trap 'restore_pools; safe_detach || true' EXIT   # also restore pools on exit
@@ -166,7 +166,7 @@ for vm in $NEWVMS; do
     done
 done
 if [ "$BAD" = 1 ]; then
-    echo "!!! Some volumes are NOT in RAM — removing the restored qubes and stopping"
+    echo "!!! Some volumes are NOT in RAM - removing the restored qubes and stopping"
     for vm in $NEWVMS; do qvm-remove -f "$vm" 2>/dev/null || true; done
     exit 1
 fi

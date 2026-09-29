@@ -4,7 +4,7 @@ This project is young and security-critical. The contributions worth the most ri
 
 1. **Leak reports.** Any path by which qube data reaches the internal disk, any
    log that records a sensitive qube name, any way the volume passphrase could
-   reach dom0. Open an issue with exact reproduction steps — these are treated
+   reach dom0. Open an issue with exact reproduction steps - these are treated
    as the highest-priority bugs.
 2. **Adversarial review of the threat model** in the README. Tell us where the
    stated guarantees are weaker than claimed.

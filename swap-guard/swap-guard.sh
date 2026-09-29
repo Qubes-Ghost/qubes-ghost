@@ -1,8 +1,8 @@
 #!/bin/bash
-# swap-guard.sh — detect swap coming back, wipe it, and shout about it.
+# swap-guard.sh - detect swap coming back, wipe it, and shout about it.
 #
 # WHY: if you removed swap for amnesic reasons, a package update or an edited
-# fstab could silently bring it back — and then RAM could be paged to disk. This
+# fstab could silently bring it back - and then RAM could be paged to disk. This
 # guard runs on a randomized timer; if it ever finds active or backing swap, it
 # disables and wipes it and raises a loud, visible notification.
 

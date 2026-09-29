@@ -1,5 +1,5 @@
 #!/bin/bash
-# ghost-teardown.sh — remove RAM-resident qubes and scrub their traces before power-off.
+# ghost-teardown.sh - remove RAM-resident qubes and scrub their traces before power-off.
 #
 # WHAT IT DOES:
 #   Finds every qube that has ANY volume in the "ghost" (RAM) pool, shuts them
@@ -21,7 +21,7 @@ FAILED=0                                # set to 1 by any step that does not ful
 # Same space-separated parser as elsewhere (NOT colon-based).
 vol_pool(){ qvm-volume info "$1:$2" 2>/dev/null | awk '$1=="pool"{print $2}'; }
 
-# scrub_file — overwrite a file's contents before unlinking it.
+# scrub_file - overwrite a file's contents before unlinking it.
 #
 # Plain `rm` only drops the directory entry; the blocks keep the data until they
 # are reused, so qube names could be recovered from unallocated space. `shred`
@@ -118,6 +118,6 @@ sync
 if [ "$FAILED" = 0 ]; then
     echo "DONE: post-conditions clean. Safe to power off."
 else
-    echo "!!! TEARDOWN NOT CLEAN — see '!!' above. Do NOT treat the disk as sterile."
+    echo "!!! TEARDOWN NOT CLEAN - see '!!' above. Do NOT treat the disk as sterile."
     exit 1
 fi

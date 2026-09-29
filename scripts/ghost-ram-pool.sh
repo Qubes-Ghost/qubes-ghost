@@ -1,5 +1,5 @@
 #!/bin/bash
-# ghost-ram-pool.sh — create the RAM-backed Qubes storage pool.
+# ghost-ram-pool.sh - create the RAM-backed Qubes storage pool.
 #
 # WHAT IT DOES, IN ONE LINE:
 #   Guarantees swap is off, mounts a noswap tmpfs, and registers it as a Qubes
@@ -40,7 +40,7 @@ systemctl mask swap.target >/dev/null 2>&1 || true   # stop systemd re-enabling 
 for u in $(systemctl list-unit-files --type=swap --no-legend 2>/dev/null | awk '{print $1}'); do
     systemctl mask "$u" >/dev/null 2>&1 || true
 done
-# Hard check: if ANY swap is still active, abort — we cannot promise no paging.
+# Hard check: if ANY swap is still active, abort - we cannot promise no paging.
 # /proc/swaps always has a header line, so "active swap" means 2 or more lines.
 if [ "$(awk 'NR>1' /proc/swaps | grep -c .)" -gt 0 ]; then
     echo "ERROR: swap is still active:"; cat /proc/swaps; exit 1
@@ -70,7 +70,7 @@ if ! mountpoint -q "$MNT"; then
     chattr -i "$MNT" 2>/dev/null || true    # clear immutable bit if left from a prior run.
     # The mount dir must be empty: leftovers would be real files on disk.
     if [ -n "$(ls -A "$MNT")" ]; then
-        echo "WARNING: $MNT is not empty (crash residue?) — deleting its contents from disk"
+        echo "WARNING: $MNT is not empty (crash residue?) - deleting its contents from disk"
         rm -rf "${MNT:?}"/*                  # ${MNT:?} guards against an empty var wiping /
     fi
     chattr +i "$MNT"                         # make the mountpoint immutable so nothing
@@ -78,7 +78,7 @@ if ! mountpoint -q "$MNT"; then
     # noswap is the whole point: without it, tmpfs pages could be swapped to disk.
     # If the kernel lacks noswap support, we fail closed rather than pretend.
     mount -t tmpfs -o size="$SIZE",mode=0700,noswap ghost-tmpfs "$MNT" \
-      || { echo "ERROR: kernel has no tmpfs 'noswap' support — guarantee cannot hold, stopping"; exit 1; }
+      || { echo "ERROR: kernel has no tmpfs 'noswap' support - guarantee cannot hold, stopping"; exit 1; }
     echo "tmpfs $SIZE (noswap) mounted"
 fi
 
@@ -90,7 +90,7 @@ fi
 FSTYPE=$(findmnt -n -o FSTYPE --mountpoint "$MNT" 2>/dev/null || true)
 MOPTS=$(findmnt -n -o OPTIONS --mountpoint "$MNT" 2>/dev/null || true)
 [ "$FSTYPE" = tmpfs ] || {
-    echo "ERROR: $MNT is not tmpfs (found '${FSTYPE:-nothing mounted}') — refusing to use it"; exit 1; }
+    echo "ERROR: $MNT is not tmpfs (found '${FSTYPE:-nothing mounted}') - refusing to use it"; exit 1; }
 case ",$MOPTS," in
     *,noswap,*) ;;
     *) echo "ERROR: $MNT is mounted without 'noswap' (options: $MOPTS)."
