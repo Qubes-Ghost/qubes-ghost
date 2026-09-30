@@ -49,9 +49,8 @@ Move them into dom0 the normal deliberate way, then:
 
 ### The volume
 
-On the removable media, create an encrypted volume. How you do that is your
-business and none of this repo's. Open it in the vault, make an empty directory
-called `qubes` inside it, close it again.
+On the removable media, create an encrypted volume. Open it in the vault, make
+an empty directory called `qubes` inside it, close it again.
 
     vault> mkdir -p /mnt/vault/qubes
 

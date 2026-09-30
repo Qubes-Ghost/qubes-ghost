@@ -54,9 +54,8 @@ compromise inside a running qube has nothing to reach for.
     scripts/ghost-ram-pool.sh  the old separate pool, kept until the rework lands
     swap-guard/                refuse to run if swap is enabled, and say so loudly
 
-The scripts do not care how your encrypted volume is opened. Open it however you
-normally do, in a networkless qube, and point them at the mount. Nothing about
-the encryption belongs in here.
+The scripts take an already opened volume. Open it in the vault and point them
+at the mount.
 
 ## Deployment
 
