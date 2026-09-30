@@ -1,151 +1,126 @@
-# Qubes Ghost - deployment guide
+# Deployment
 
-A simple, step-by-step walkthrough. It assumes a working Qubes OS install and basic comfort with a dom0 terminal. Nothing here depends on any particular hardware.
+Read this before running anything. The teardown step removes qubes.
 
-Throughout, `dom0$` means a command typed in a **dom0** terminal, and `vault>` means a command run **inside the vault qube's** terminal.
+The session itself is not set up here. Use linuxuser1's live mode work for that,
+linked in the README. What follows assumes you are already booted into an
+amnesic session, or into a normal one if you are just trying the cycle out.
 
----
+## Concepts
 
-## 0. Concepts (read once)
+Three things and one rule.
 
-- **RAM pool** - a Qubes storage pool backed by `tmpfs` (RAM). Anything placed here disappears on power-off and is never written to the internal disk.
-- **vault** - a networkless DisposableVM used only to open the encrypted removable volume. The decryption passphrase is typed *here*, never in dom0.
-- **the volume** - an encrypted (ideally VeraCrypt hidden) volume on removable media that holds your qubes at rest.
-- **cycle** - one working session: `ram-pool -> load -> (disconnect) work (reconnect) -> save -> teardown -> power off`.
+The vault is a networkless DisposableVM. Your encrypted media is attached to it,
+you open the volume inside it, and the passphrase is typed there. It never
+reaches dom0.
 
----
+The volume is on the removable media. Inside it there is a directory named
+`qubes` and that is where the archives go.
 
-## 1. One-time preparation
+The pool is where restored qubes live while you work. It is in RAM.
 
-### 1.1 Minimal template for the vault
+The rule is that saves only move forward. The newest archive is the valid one.
+An older archive is not a recovery option, restoring one breaks any qube whose
+crypto only moves forward.
 
-Use a minimal template so the vault's trusted surface is small. Install VeraCrypt into it from the official source and **verify the signature** before use:
+## One-time setup
 
-```
-dom0$ qvm-clone <your-minimal-template> tpl-vault
-# then, inside tpl-vault, download VeraCrypt from veracrypt.io, verify its PGP
-# signature, install it, and shut the template down.
-```
+### The vault template
 
-### 1.2 The vault qube (networkless DisposableVM)
+Build a minimal template and install into it whatever you use to open your
+encrypted volume. Keep it small. It does not need network after that.
 
-```
-dom0$ qvm-create --class DispVM --template <dvm-based-on-tpl-vault> --label red ghost-vault
-dom0$ qvm-prefs ghost-vault netvm ''          # vault is ALWAYS offline
-dom0$ qvm-prefs ghost-vault provides_network false
-```
+### The vault qube
 
-Confirm it is offline and templated correctly:
+    dom0$ qvm-create --class DispVM --template <dvm-based-on-your-template> --label red ghost-vault
+    dom0$ qvm-prefs ghost-vault netvm ''
+    dom0$ qvm-prefs ghost-vault provides_network false
 
-```
-dom0$ qvm-prefs ghost-vault netvm     # must print nothing
-dom0$ qvm-prefs ghost-vault klass     # must print: DispVM
-```
+Check it:
 
-### 1.3 Install the scripts into dom0
+    dom0$ qvm-prefs ghost-vault netvm     # prints nothing
+    dom0$ qvm-prefs ghost-vault klass     # prints DispVM
 
-Copy the four scripts into dom0 (use the standard, deliberate Qubes method for moving a file into dom0 - e.g. `qvm-run --pass-io`), then:
+### The scripts
 
-```
-dom0$ sudo install -m 0755 ghost-ram-pool.sh ghost-load.sh ghost-save.sh ghost-teardown.sh /usr/local/bin/
-```
+Move them into dom0 the normal deliberate way, then:
 
-### 1.4 Prepare the encrypted volume (first time only)
+    dom0$ sudo install -m 0755 ghost-ram-pool.sh ghost-load.sh ghost-save.sh ghost-teardown.sh /usr/local/bin/
 
-On the removable media, create your encrypted volume with VeraCrypt (a **hidden** volume if you want deniability of existence). Inside it, create an empty directory named `qubes` - this is where backups will live:
+### The volume
 
-```
-vault> veracrypt --text --mount /dev/<device> /mnt/vera   # enter passphrase
-vault> mkdir -p /mnt/vera/qubes
-vault> veracrypt --text --dismount /mnt/vera
-```
+On the removable media, create an encrypted volume. How you do that is your
+business and none of this repo's. Open it in the vault, make an empty directory
+called `qubes` inside it, close it again.
 
----
+    vault> mkdir -p /mnt/vault/qubes
 
-## 2. A working session
+## A session
 
-### 2.1 Create the RAM pool
+### Load
 
-Pick a size that fits comfortably in dom0's memory (leave headroom - the scripts refuse a size that would starve dom0):
+    dom0$ sudo ghost-load.sh
 
-```
-dom0$ sudo ghost-ram-pool.sh 20G
-```
+It lists attachable block devices and asks which one is your media. Then it waits
+while you open the volume inside the vault and mount it at `/mnt/vault`. Then it
+lists the archives it found, restores the ones you pick into the pool, checks
+that every volume actually landed there, and detaches the media.
 
-This disables/masks swap, mounts a `noswap` tmpfs, and registers it as the pool `ghost`. Verify:
+### Work
 
-```
-dom0$ qvm-pool | grep ghost
-dom0$ df -h /var/lib/qubes/ghost-pool
-```
+When the load reports success the media is already detached. Take it out and put
+it away. The qubes are running from RAM now.
 
-### 2.2 Load your qubes into RAM
+### Save
 
-```
-dom0$ sudo ghost-load.sh
-```
+Put the media back and run:
 
-The script will:
-1. list attachable block devices - enter the one for your media (e.g. `sys-usb:sdb`);
-2. wait for you to open the volume **inside the vault**:
-   ```
-   vault> veracrypt --text --mount /dev/<device> /mnt/vera   # enter passphrase HERE
-   ```
-3. list the backups it finds - enter the directory/archive to restore;
-4. restore the selected qubes **into the RAM pool**, verify every volume actually landed in RAM, then dismount and detach the media.
+    dom0$ sudo ghost-save.sh
 
-### 2.3 Disconnect and work
+Same opening step as before. It writes an archive with a hash manifest, refuses
+to write anything older than what is already on the volume, and only detaches
+after the unmount is confirmed.
 
-Once `ghost-load.sh` reports success, the media is already detached - **physically remove it and put it away.** Your qubes now run entirely from RAM. Work normally.
+### Teardown
 
-### 2.4 Save back
+    dom0$ sudo ghost-teardown.sh
 
-When you are done, reconnect the media and:
+Removes the qubes and the pool, then checks that nothing is left behind. Power
+off after it.
 
-```
-dom0$ sudo ghost-save.sh
-```
+## Checking that it works
 
-Enter the qubes to save, the device, open the volume in the vault as before; the script writes a verified, hash-manifested backup and detaches the media only after a proven dismount.
+Do this before trusting it with anything.
 
-### 2.5 Teardown and power off
+Load a qube, put a marker file in it, save, teardown, power off. Boot again,
+load, and look for the marker. It should be there.
 
-```
-dom0$ sudo ghost-teardown.sh
-```
+Then check the other direction. After a teardown and reboot, with the media not
+connected, the qube should be gone and nothing about it should be findable.
 
-It removes the RAM-resident qubes, scrubs logs/journald/history of their names, and asserts sterility post-conditions. If it prints that post-conditions are clean, power off:
+Then check the forward-only rule. Save, then try to restore an older archive on
+purpose. The script should refuse.
 
-```
-dom0$ sudo poweroff
-```
+## Swap
 
-The tmpfs - and everything in it - is gone.
+Swap defeats the point. If pages go to disk, the work you kept off the disk is
+on the disk.
 
----
+    dom0$ sudo install -m 0755 swap-guard.sh /usr/local/bin/
+    dom0$ sudo install -m 0644 swap-guard.service swap-guard.timer /etc/systemd/system/
+    dom0$ sudo systemctl enable --now swap-guard.timer
 
-## 3. Verifying it actually works (acceptance tests)
+It checks that swap is off and complains if it is not. It does not turn it off
+for you.
 
-Do these once, on **throwaway** test qubes, before trusting the workflow:
+## When something goes wrong
 
-- [ ] After `ghost-ram-pool.sh`: create a test qube in pool `ghost`, write a marker file, confirm internal-disk usage (`sudo lvs`, `df`) does **not** grow.
-- [ ] After `ghost-load.sh`: physically pull the media - the qubes keep running from RAM.
-- [ ] After `ghost-save.sh`: mount the volume on a *second* machine/qube and confirm the archive + `manifest.sha256` + `.done` are present and the hash matches.
-- [ ] Reboot, then re-run `ghost-load.sh` on the same backup - your marker file is intact.
-- [ ] After `ghost-teardown.sh` + reboot: the pool is empty, the test qubes are gone (`qvm-ls`), and there is no residue under `/var/lib/qubes` or in `sudo lvs`.
-- [ ] Confirm the passphrase was only ever typed inside `ghost-vault`, never in dom0.
+If the load stops while waiting for the mount, the volume is not mounted where it
+expects. Check inside the vault, not in dom0.
 
----
+If a restore fails partway, the pool may hold half a qube. Run the teardown
+before trying again.
 
-## 4. Optional: guard against swap coming back
-
-Swap can silently reappear (a package update, an edited `fstab`). If you have removed swap for amnesic reasons, install a small guard (a `systemd` timer with a randomized interval) that detects any active/backing swap, disables and wipes it, and raises a visible desktop notification plus a log line. See `swap-guard/` for the unit and script.
-
----
-
-## 5. Troubleshooting
-
-- **Pool creation refuses with a memory error** - the requested tmpfs size plus dom0's reserve exceeds available memory. Choose a smaller size, or increase dom0's memory allotment (this is a boot-layer change and, on measured-boot platforms, requires re-attesting `/boot`).
-- **`ghost-load.sh` says the volume isn't mounted** - you must open it *inside the vault* within the wait window; re-run and open it promptly.
-- **Restore aborts on a name conflict** - a qube of that name already exists; remove it (`qvm-shutdown --wait` then `qvm-remove`) or restore under a renamed name.
-- **A restored volume landed outside the pool** - the script aborts and removes the restored qubes by design; check that `default_pool*` handling succeeded and retry. Report it - that is exactly the kind of leak this project wants to hear about.
+If the media will not detach, something still has the mount open. The script
+polls for it rather than forcing a detach, on purpose. Close whatever is holding
+it in the vault.

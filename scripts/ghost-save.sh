@@ -18,7 +18,7 @@ exec 9>/run/lock/qubes-ghost.lock
 flock -n 9 || { echo "another ghost script is already running"; exit 1; }
 
 VAULT=ghost-vault
-VMNT=/mnt/vera                          # volume mount point inside the vault
+VMNT=/mnt/vault                          # mount point of the opened volume inside the vault
 BACKDIR="$VMNT/qubes"
 POOLMNT=/var/lib/qubes/ghost-pool
 export TMPDIR="$POOLMNT/tmp"            # keep any staging in RAM
@@ -40,7 +40,7 @@ fi
 DEV=""; MOUNTED=0
 safe_detach(){                          # identical guarantee as in ghost-load.sh
     if [ "$MOUNTED" = 1 ]; then
-        vrun "sync; veracrypt --text --dismount $VMNT" >/dev/null 2>&1 || true
+        vrun "sync; umount $VMNT" >/dev/null 2>&1 || true
         for i in 1 2 3 4 5 6; do
             qvm-run --user root --pass-io -q "$VAULT" "! mountpoint -q $VMNT" 2>/dev/null && { MOUNTED=0; break; }; sleep 3
         done
@@ -59,7 +59,7 @@ qvm-start --skip-if-running "$VAULT"
 qvm-block attach "$VAULT" "$DEV"
 
 # --- 2) Open the volume inside the vault ----------------------------------
-echo "== 2) open the volume in $VAULT ($VMNT):  veracrypt --text --mount /dev/<dev> $VMNT"
+echo "== 2) open your encrypted volume in $VAULT and mount it at $VMNT"
 for i in $(seq 1 60); do
     qvm-run --user root --pass-io -q "$VAULT" "mountpoint -q $VMNT" 2>/dev/null && { MOUNTED=1; echo ok; break; }
     [ "$i" = 60 ] && exit 1; sleep 5

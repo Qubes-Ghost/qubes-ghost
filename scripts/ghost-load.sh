@@ -18,7 +18,7 @@ exec 9>/run/lock/qubes-ghost.lock
 flock -n 9 || { echo "another ghost script is already running"; exit 1; }
 
 VAULT=ghost-vault                       # the networkless DisposableVM
-VMNT=/mnt/vera                          # mount point of the volume INSIDE the vault
+VMNT=/mnt/vault                          # mount point of the opened volume inside the vault
 BACKDIR="$VMNT/qubes"                   # where backups live on the volume
 POOLMNT=/var/lib/qubes/ghost-pool       # the RAM pool's tmpfs mount in dom0
 export TMPDIR="$POOLMNT/tmp"            # force restore staging into RAM, not disk
@@ -53,7 +53,7 @@ DEV=""; MOUNTED=0
 # safe_detach: only ever detaches media once the volume is proven unmounted.
 safe_detach(){
     if [ "$MOUNTED" = 1 ]; then
-        qvm-run --user root --pass-io "$VAULT" "sync; veracrypt --text --dismount $VMNT" >/dev/null 2>&1 || true
+        qvm-run --user root --pass-io "$VAULT" "sync; umount $VMNT" >/dev/null 2>&1 || true
         # poll up to ~10s for the mountpoint to actually be gone
         for i in 1 2 3 4 5; do
             qvm-run --user root --pass-io -q "$VAULT" "! mountpoint -q $VMNT" 2>/dev/null && { MOUNTED=0; break; }
@@ -96,7 +96,8 @@ qvm-block attach "$VAULT" "$DEV"
 # --- 2) You open the encrypted volume INSIDE the vault -------------------
 echo "== 2) block devices seen inside $VAULT:"
 qvm-run --user root --pass-io "$VAULT" "lsblk -o NAME,SIZE,TYPE | grep -v loop" || true
-echo "   In a $VAULT terminal:  veracrypt --text --mount /dev/<dev> $VMNT   (enter passphrase HERE)"
+echo "   In a $VAULT terminal: open your encrypted volume and mount it at $VMNT"
+echo "   The passphrase is typed there and never reaches dom0."
 # Wait up to 5 minutes for the mount to appear; the passphrase never reaches dom0.
 for i in $(seq 1 60); do
     qvm-run --user root --pass-io -q "$VAULT" "mountpoint -q $VMNT" 2>/dev/null && { MOUNTED=1; echo mounted; break; }
