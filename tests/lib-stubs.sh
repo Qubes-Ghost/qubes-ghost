@@ -14,6 +14,11 @@
 #   FAIL_BACKUP                            a backup that dies halfway
 #   GS_QROOT                               directory standing in for the qube's /
 #   GS_RUNNING                             whether qvm-check calls the qube running
+#   GS_MOUNTED                             paths mountpoint calls mounted, unset = all
+#   GS_VGS                                 volume groups vgs finds
+#   GS_LOOPS                               backing files losetup lists
+#   GS_POOLS                               what `qvm-pool list` prints
+#   GS_VMS                                 what `qvm-ls --raw-list` prints when asked flat
 make_stubs(){
   local d="$1"; mkdir -p "$d"
   : "${GS_POOL_DRIVER:=lvm_thin}" "${GS_POOL_VG:=rvg}" "${GS_POOL_TP:=rpool}"
@@ -26,7 +31,21 @@ make_stubs(){
   export GS_FLAG="$d/../restored"
 
   for c in cryptsetup vgchange qvm-shutdown; do printf '#!/bin/sh\nexit 0\n' > "$d/$c"; done
-  printf '#!/bin/sh\nexit 0\n' > "$d/mountpoint"
+  : "${GS_VGS:=rvg vg1}" "${GS_LOOPS:=/mnt/ram/d.img}" "${GS_POOLS:=r1}"
+  export GS_VGS GS_LOOPS GS_POOLS
+  cat > "$d/mountpoint" <<'E'
+#!/bin/sh
+# unset GS_MOUNTED means "everything is a mountpoint", which is what the
+# tests about loading and saving want
+[ -z "${GS_MOUNTED+x}" ] && exit 0
+for m in $GS_MOUNTED; do [ "$m" = "$2" ] && exit 0; done
+exit 1
+E
+  cat > "$d/vgs" <<'E'
+#!/bin/sh
+for v in $GS_VGS; do [ "$v" = "$1" ] && exit 0; done
+exit 1
+E
   cat > "$d/qubes-prefs" <<'E'
 #!/bin/sh
 [ "$1" = default_pool ] && [ $# -eq 1 ] && echo vm-pool
@@ -35,7 +54,7 @@ E
   cat > "$d/qvm-pool" <<'E'
 #!/bin/sh
 case "$1" in
-  list) echo r1 ;;
+  list) for p in $GS_POOLS; do echo "$p"; done ;;
   info) printf 'name %s\ndriver %s\nvolume_group %s\nthin_pool %s\n' \
           "$2" "$GS_POOL_DRIVER" "$GS_POOL_VG" "$GS_POOL_TP" ;;
 esac
@@ -47,8 +66,12 @@ printf '%s\n' "$GS_PVS"
 E
   cat > "$d/losetup" <<'E'
 #!/bin/sh
-# only the "-n -O BACK-FILE <dev>" form is used
-[ -n "$GS_LOOP_BACK" ] && echo "$GS_LOOP_BACK"
+# "-l -O BACK-FILE" lists what is still attached, "-n -O BACK-FILE <dev>"
+# asks about one device
+case " $* " in
+  *" -l "*) echo "BACK-FILE"; for f in $GS_LOOPS; do echo "$f"; done ;;
+  *" -n "*) [ -n "$GS_LOOP_BACK" ] && echo "$GS_LOOP_BACK" ;;
+esac
 exit 0
 E
   cat > "$d/findmnt" <<'E'
@@ -98,6 +121,15 @@ echo "$cmd" >> "$GS_QROOT/../qvm-run.log"
 cmd=$(printf '%s' "$cmd" | sed "s#-C / #-C $GS_QROOT #g; s#-C /\$#-C $GS_QROOT#")
 case "$cmd" in *"-C /") bad=1 ;; *"-C / "*) bad=1 ;; *) bad=0 ;; esac
 [ "$bad" = 1 ] && { echo "stub refuses to run against the real root: $cmd" >&2; exit 1; }
+# A command meant for the inside of a qube must never reach the host's process
+# table or services. The log above is enough for the test to assert on; running
+# it is not. It did once: the `stop:` line of a messenger list was pkill, and on
+# the host it killed the real daemon of the same name and took a live channel
+# down for a quarter of an hour.
+case "$cmd" in
+  pkill*|*" pkill "*|kill\ *|killall*|systemctl*|reboot*|shutdown*|poweroff*)
+    exit 0 ;;
+esac
 exec /bin/sh -c "$cmd"
 E
   cat > "$d/qvm-backup" <<'E'

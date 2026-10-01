@@ -32,7 +32,7 @@ chk "refused" "nothing says what is worth keeping" "$($G state-save phrase $Q 2>
 
 cat > "$T/store/state-$Q.list" <<'L'
 # what is worth keeping out of this qube
-stop: pkill -x simplex-chat
+stop: pkill -x ghost-fixture-app
 /home/user/.simplex
 L
 
@@ -42,7 +42,7 @@ GS_RUNNING=0 chk "refused" "is not running" "$(GS_RUNNING=0 $G state-save phrase
 echo "3. saving keeps only what the list names"
 OUT=$($G state-save phrase $Q 2>&1)
 chk "sealed as generation 1" "STATE-SAVE-OK generation=1" "$OUT"
-chk "the app was closed first" "pkill -x simplex-chat" "$(head -1 "$GS_QROOT/../qvm-run.log")"
+chk "the app was closed first" "pkill -x ghost-fixture-app" "$(head -1 "$GS_QROOT/../qvm-run.log")"
 chk "and the tar came after it" "tar czf" "$(sed -n 2p "$GS_QROOT/../qvm-run.log")"
 B=$(sed -n 's/^arc=//p' "$T/store/state-$Q.seal")
 chk "the messenger's keys are in the bundle" "home/user/.simplex/keys" "$(tar tzf "$T/store/$B")"

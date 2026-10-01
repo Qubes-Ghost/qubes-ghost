@@ -97,6 +97,7 @@ split: the large things here hold public data, the secrets are small.
     tests/forward-only.sh      proves the forward-only refusals, no Qubes needed
     tests/ram-placement.sh     proves it refuses to restore anywhere but RAM
     tests/state-bundle.sh      proves only the named paths leave the qube
+    tests/sterile.sh           proves it will not call a dirty machine safe
     tests/lib-stubs.sh         the stubs the tests share
 
 `ghost` opens the store itself, you give it the passphrase. The four older
@@ -140,7 +141,14 @@ and discarded at the end. Proven against a stand-in filesystem in
 Matrix: find out whether the session really rotates or whether a key re-request
 heals the rollback. Open.
 
-Sterility checks before power off. In the older teardown script, not in `ghost`.
+Sterility checks before power off. Done. `down` now ends with a verdict
+instead of a cheerful word: it checks that no qube still has a volume in the
+RAM pool, that the pool, the volume group, the loop device, both mounts and the
+open store are all gone, and that swap on a disk is not active. zram swap is
+noted rather than held against it, because it lives in RAM and goes with the
+power. The same check is available on its own as `ghost sterile`. There is no
+log scrubbing: the amnesic session makes dom0's root ephemeral, so there is
+nothing to scrub. `tests/sterile.sh` covers it.
 
 ## Open questions, and where they stand
 

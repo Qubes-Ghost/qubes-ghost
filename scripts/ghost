@@ -7,6 +7,7 @@
 # state-save <passphrase> <qube>  keep only what state-<qube>.list names
 # state-load <qube>               put that back into a running qube
 # ram                   check that the RAM pool is really in RAM
+# sterile               check nothing of the session is left before power off
 # state                 what the store says is sealed
 # seal <archive>        seal an archive already in the store, as a new generation
 # down <qubes..>        remove the qubes and the pool, close everything
@@ -14,9 +15,11 @@ set -u
 D=${GHOST_DEV:-/dev/qubes_dom0/data}
 BP=/root/.ghost.bp
 STORE=${GHOST_STORE:-/mnt/store}
+MAP=${GHOST_MAP:-/dev/mapper/ghosth}
+SWAPS=${GHOST_SWAPS:-/proc/swaps}
 ST="$STORE/ghost.state"
 
-open_vol(){ [ -e /dev/mapper/ghosth ] && return 0
+open_vol(){ [ -e "$MAP" ] && return 0
   printf '%s' "$1" | cryptsetup --type tcrypt --veracrypt --tcrypt-hidden open "$D" ghosth --key-file=- || return 1
   vgchange -ay vg1 >/dev/null; }
 mount_store(){ mkdir -p "$STORE"; mountpoint -q "$STORE" || mount /dev/vg1/store "$STORE"; }
@@ -66,6 +69,39 @@ placement_check(){
       [ "$p" = r1 ] || { echo "LEAK: $vm:$v is in pool '$p', not in RAM" >&2; bad=1; }
     done
   done
+  return $bad; }
+
+# --- nothing of the session left -----------------------------------------
+# What makes the disk sterile is the power going off: the tmpfs and everything
+# in it exist only in RAM. This checks that nothing is still holding on to it
+# beforehand - a qube, the pool, the volume group, the loop device, a mount, or
+# the open store. The amnesic session takes care of dom0's own logs, which is
+# why there is no scrubbing here.
+sterile_check(){
+  local bad=0 vm v p dev
+  for vm in $(qvm-ls --raw-list 2>/dev/null); do
+    for v in root private volatile; do
+      p=$(vol_pool "$vm" "$v")
+      [ "$p" = r1 ] && { echo "!! $vm:$v is still in the RAM pool" >&2; bad=1; }
+    done
+  done
+  qvm-pool list 2>/dev/null | grep -qw r1 && { echo "!! pool r1 is still registered" >&2; bad=1; }
+  vgs rvg >/dev/null 2>&1 && { echo "!! volume group rvg still exists" >&2; bad=1; }
+  losetup -l -O BACK-FILE 2>/dev/null | grep -q '^/mnt/ram/' \
+    && { echo "!! a loop device still backs a file in /mnt/ram" >&2; bad=1; }
+  mountpoint -q /mnt/ram && { echo "!! /mnt/ram is still mounted" >&2; bad=1; }
+  mountpoint -q "$STORE" && { echo "!! $STORE is still mounted" >&2; bad=1; }
+  vgs vg1 >/dev/null 2>&1 && { echo "!! the store's volume group vg1 is still there" >&2; bad=1; }
+  [ -e "$MAP" ] && { echo "!! the store is still open at $MAP" >&2; bad=1; }
+  # zram swap lives in RAM and goes with the power; swap on a disk does not,
+  # and anything paged out to it has already been written
+  while read -r dev _; do
+    case "$dev" in
+      Filename|'') ;;
+      /dev/zram*) echo "note: zram swap is active, it is in RAM and goes with the power" >&2 ;;
+      *) echo "!! swap on $dev is active, pages may already be on disk" >&2; bad=1 ;;
+    esac
+  done < "$SWAPS"
   return $bad; }
 
 # --- forward only ------------------------------------------------------
@@ -156,7 +192,7 @@ air)
   umount "$STORE" 2>/dev/null
   vgchange -an vg1 >/dev/null 2>&1
   cryptsetup close ghosth 2>/dev/null
-  [ -e /dev/mapper/ghosth ] && { echo AIR-FAIL; exit 1; }
+  [ -e "$MAP" ] && { echo AIR-FAIL; exit 1; }
   echo AIR-OK ;;
 save)
   open_vol "${2:?a passphrase is required}" || { echo SAVE-FAIL-OPEN; exit 1; }
@@ -227,6 +263,9 @@ state-load)
     || { echo STATE-LOAD-FAIL; exit 1; }
   G=$(st_get "$SEAL" gen); st_put "$SEAL" "$G" "$B" "$(st_get "$SEAL" sha)" "$G"
   echo "STATE-LOAD-OK bundle=$B generation=$G" ;;
+sterile)
+  if sterile_check; then echo "STERILE-OK nothing of the session is left, safe to power off"
+  else echo STERILE-FAIL; exit 1; fi ;;
 ram)
   if ram_check; then echo "RAM-OK pool r1 is backed by tmpfs"; else echo RAM-FAIL; exit 1; fi ;;
 state)
@@ -247,6 +286,8 @@ down)
   losetup -D 2>/dev/null; umount /mnt/ram 2>/dev/null
   umount "$STORE" 2>/dev/null; vgchange -an vg1 >/dev/null 2>&1
   cryptsetup close ghosth 2>/dev/null
-  echo DOWN-OK ;;
-*) echo "ghost {up|load|air|save|state|seal|ram|state-save|state-load|down} ..." ;;
+  sync
+  if sterile_check; then echo "DOWN-OK nothing of the session is left, safe to power off"
+  else echo "DOWN-NOT-CLEAN see the lines above, do not treat the disk as sterile"; exit 1; fi ;;
+*) echo "ghost {up|load|air|save|state|seal|ram|state-save|state-load|sterile|down} ..." ;;
 esac

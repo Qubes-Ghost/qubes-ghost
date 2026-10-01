@@ -66,6 +66,7 @@ One script does the whole cycle.
     dom0$ sudo ghost state-save <passphrase> <qube>   keep just that qube's state
     dom0$ sudo ghost state-load <qube>        put it back into a running qube
     dom0$ sudo ghost ram                      check the pool really is in RAM
+    dom0$ sudo ghost sterile                  check nothing is left, before power off
     dom0$ sudo ghost state                    what the store says is sealed
     dom0$ sudo ghost seal <archive>           seal an archive that has no seal yet
 
@@ -115,11 +116,24 @@ That turns the qube into something ordinary. Build it from a stock template in
 RAM, pour the state in, work, pour the state out, discard the qube. The store
 then holds a few megabytes of keys and database instead of an image.
 
-All three sets of refusals can be exercised without Qubes and without a hidden
-volume: `bash tests/forward-only.sh`, `bash tests/ram-placement.sh` and
-`bash tests/state-bundle.sh` stub out the Qubes and LVM commands and check the
-sealing, the pruning, what an interrupted save leaves behind, every link of the
-RAM chain in turn, and that nothing but the listed paths leaves the qube.
+`down` no longer just says it is finished. It tears the session down and then
+checks: no qube with a volume in the RAM pool, no pool `r1`, no volume group
+`rvg`, no loop device on the tmpfs, `/mnt/ram` and the store both unmounted,
+`vg1` gone and the store closed, and no swap on a disk. If anything is still
+holding on it says `DOWN-NOT-CLEAN` and names it, and the disk should not be
+treated as sterile. `ghost sterile` runs the same check on its own, which is
+the thing to do right before the power goes off.
+
+Swap on a disk fails the check. zram swap only gets a note: it is in RAM and
+goes with the power.
+
+All four sets of refusals can be exercised without Qubes and without a hidden
+volume: `bash tests/forward-only.sh`, `bash tests/ram-placement.sh`,
+`bash tests/state-bundle.sh` and `bash tests/sterile.sh` stub out the Qubes and
+LVM commands and check the sealing, the pruning, what an interrupted save
+leaves behind, every link of the RAM chain in turn, that nothing but the listed
+paths leaves the qube, and that a machine with something still holding on is
+not called safe to power off.
 
 ## A session, step by step
 
