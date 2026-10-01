@@ -1,4 +1,4 @@
-# Qubes Ghost
+# Add-on to live mode: qubes in RAM, store detached during the session
 
 Read this first. This is a small addition on top of someone else's work, not a
 project of its own. The amnesic session it runs in is linuxuser1's live mode,
