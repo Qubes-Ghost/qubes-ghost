@@ -63,6 +63,8 @@ One script does the whole cycle.
     dom0$ sudo ghost air                      close the store, work with it gone
     dom0$ sudo ghost save <passphrase> <qubes>  put it back open and save
     dom0$ sudo ghost down <qubes>             remove everything, close everything
+    dom0$ sudo ghost state-save <passphrase> <qube>   keep just that qube's state
+    dom0$ sudo ghost state-load <qube>        put it back into a running qube
     dom0$ sudo ghost ram                      check the pool really is in RAM
     dom0$ sudo ghost state                    what the store says is sealed
     dom0$ sudo ghost seal <archive>           seal an archive that has no seal yet
@@ -96,10 +98,28 @@ and the load fails. For an AppVM the root volume is expected to be in its
 template's pool and is not counted against it; for a standalone or a template
 it is, because those own their root.
 
-Both sets of refusals can be exercised without Qubes and without a hidden
-volume: `bash tests/forward-only.sh` and `bash tests/ram-placement.sh` stub out
-the Qubes and LVM commands and check the sealing, the pruning, what an
-interrupted save leaves behind, and every link of the RAM chain in turn.
+For a messenger there is a lighter way than carrying a whole qube image.
+Put a file in the store called `state-<qube>.list`:
+
+    # what is worth keeping out of this qube
+    stop: pkill -x simplex-chat
+    /home/user/.simplex
+
+`state-save` closes the app with the `stop:` line, tars exactly the listed
+paths out of the running qube, reads the result back to be sure it is whole,
+seals it and prunes the older bundles. `state-load` verifies the seal and the
+hash and streams it back into a running qube. Nothing is guessed: with no list
+file, `state-save` refuses rather than deciding for you what matters.
+
+That turns the qube into something ordinary. Build it from a stock template in
+RAM, pour the state in, work, pour the state out, discard the qube. The store
+then holds a few megabytes of keys and database instead of an image.
+
+All three sets of refusals can be exercised without Qubes and without a hidden
+volume: `bash tests/forward-only.sh`, `bash tests/ram-placement.sh` and
+`bash tests/state-bundle.sh` stub out the Qubes and LVM commands and check the
+sealing, the pruning, what an interrupted save leaves behind, every link of the
+RAM chain in turn, and that nothing but the listed paths leaves the qube.
 
 ## A session, step by step
 

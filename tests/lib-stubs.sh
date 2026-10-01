@@ -12,6 +12,8 @@
 #   GS_VOL_POOL                            pool reported for every volume
 #   GS_LEAK                                "vm:volume" reported in GS_LEAK_POOL instead
 #   FAIL_BACKUP                            a backup that dies halfway
+#   GS_QROOT                               directory standing in for the qube's /
+#   GS_RUNNING                             whether qvm-check calls the qube running
 make_stubs(){
   local d="$1"; mkdir -p "$d"
   : "${GS_POOL_DRIVER:=lvm_thin}" "${GS_POOL_VG:=rvg}" "${GS_POOL_TP:=rpool}"
@@ -76,6 +78,27 @@ E
 #!/bin/sh
 shift; echo "$@" >> "$GS_FLAG.removed"
 exit 0
+E
+  : "${GS_QROOT:=$d/../qube}" "${GS_RUNNING:=1}"
+  mkdir -p "$GS_QROOT"; export GS_QROOT GS_RUNNING
+  cat > "$d/qvm-check" <<'E'
+#!/bin/sh
+[ "$GS_RUNNING" = 1 ]
+E
+  # Stands in for the qube's filesystem: the command is run here, with the
+  # tar target swapped from the real root to the directory that plays one.
+  cat > "$d/qvm-run" <<'E'
+#!/bin/sh
+for a in "$@"; do cmd="$a"; done
+echo "$cmd" >> "$GS_QROOT/../qvm-run.log"
+# The qube's root becomes the stand-in directory, at the end of the command as
+# well as in the middle. If a "/" target survives the rewrite, refuse outright:
+# a stub must never be able to write to the root of the machine running the
+# test. It could, once, and it wrote a test fixture into the real /home.
+cmd=$(printf '%s' "$cmd" | sed "s#-C / #-C $GS_QROOT #g; s#-C /\$#-C $GS_QROOT#")
+case "$cmd" in *"-C /") bad=1 ;; *"-C / "*) bad=1 ;; *) bad=0 ;; esac
+[ "$bad" = 1 ] && { echo "stub refuses to run against the real root: $cmd" >&2; exit 1; }
+exec /bin/sh -c "$cmd"
 E
   cat > "$d/qvm-backup" <<'E'
 #!/bin/sh

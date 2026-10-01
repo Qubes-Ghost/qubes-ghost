@@ -38,7 +38,7 @@ https://forum.qubes-os.org/t/qubes-ghost-amnesic-session-portable-qubes-on-encry
 
 So the workload needs to persist somewhere that is not the internal disk.
 
-## Three ways to run a qube
+## Four ways to run a qube
 
 Pick by what the qube is.
 
@@ -96,6 +96,8 @@ split: the large things here hold public data, the secrets are small.
     swap-guard/                detect swap, reset zram if it finds it, warn loudly
     tests/forward-only.sh      proves the forward-only refusals, no Qubes needed
     tests/ram-placement.sh     proves it refuses to restore anywhere but RAM
+    tests/state-bundle.sh      proves only the named paths leave the qube
+    tests/lib-stubs.sh         the stubs the tests share
 
 `ghost` opens the store itself, you give it the passphrase. The four older
 scripts expect it already open and mounted.
@@ -126,8 +128,14 @@ Hash the archive and mark it complete only after verifying. Done, it came with
 the forward-only work: the seal is written after the hash is taken, and the
 hash is checked again before every load.
 
-Keep only the crypto state of a messenger instead of a whole qube image.
-Not started.
+Keep only the crypto state of a messenger instead of a whole qube image. Done
+as `state-save` and `state-load`. A file in the store names the paths worth
+keeping, and optionally a command that closes the app first so its database is
+not copied mid-write. What leaves the qube is those paths and nothing else, a
+few megabytes instead of an image, sealed under the same forward-only rule.
+The qube itself can then be an ordinary one, built from a stock template in RAM
+and discarded at the end. Proven against a stand-in filesystem in
+`tests/state-bundle.sh`, not yet against a real messenger.
 
 Matrix: find out whether the session really rotates or whether a key re-request
 heals the rollback. Open.

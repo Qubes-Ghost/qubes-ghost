@@ -4,6 +4,8 @@
 # load [archive] <qubes..> restore into RAM, sealed archive only
 # air                   close the store, work with it gone from the system
 # save <passphrase> <qubes..> save, seal, prune the older archives
+# state-save <passphrase> <qube>  keep only what state-<qube>.list names
+# state-load <qube>               put that back into a running qube
 # ram                   check that the RAM pool is really in RAM
 # state                 what the store says is sealed
 # seal <archive>        seal an archive already in the store, as a new generation
@@ -70,34 +72,36 @@ placement_check(){
 # The store carries a seal: gen, the generation number, one up per save;
 # arc, the name of the only archive that may be loaded; sha, its hash;
 # seen, the newest generation that has already been loaded.
-st_get(){ [ -f "$ST" ] && sed -n "s/^$1=//p" "$ST" | tail -1; }
+# Taken as <seal file> <key>, because there is more than one seal now: one for
+# the qube archives, and one per qube for its state bundles.
+st_get(){ [ -f "$1" ] && sed -n "s/^$2=//p" "$1" | tail -1; }
 
-st_put(){ # gen arc sha seen - written whole, through a temporary file
-  local t="$STORE/.ghost.state.new"
+st_put(){ # <seal file> gen arc sha seen - written whole, through a temp file
+  local f="$1" t="$1.new"
   printf 'gen=%s\narc=%s\nsha=%s\nseen=%s\nsealed=%s\n' \
-    "$1" "$2" "$3" "$4" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$t" || return 1
+    "$2" "$3" "$4" "$5" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$t" || return 1
   sync "$t" 2>/dev/null
-  mv -f "$t" "$ST" || return 1
+  mv -f "$t" "$f" || return 1
   sync "$STORE" 2>/dev/null; return 0; }
 
 arc_hash(){ sha256sum "$STORE/$1" | cut -d' ' -f1; }
 
 # The usable archive on stdout, the reason for a refusal on stderr.
-arc_pick(){
-  local g a s n
-  g=$(st_get gen); a=$(st_get arc); s=$(st_get sha)
+seal_pick(){
+  local f="$1" g a s n
+  g=$(st_get "$f" gen); a=$(st_get "$f" arc); s=$(st_get "$f" sha)
   [ -n "$g" ] && [ -n "$a" ] && [ -n "$s" ] || { echo "the store carries no seal" >&2; return 1; }
   [ -f "$STORE/$a" ] || { echo "the sealed archive $a is gone from the store" >&2; return 1; }
-  n=$(st_get seen); n=${n:-0}
+  n=$(st_get "$f" seen); n=${n:-0}
   [ "$g" -ge "$n" ] || { echo "the store was wound back: seal is generation $g, but $n was already loaded" >&2; return 1; }
   [ "$(arc_hash "$a")" = "$s" ] || { echo "the hash of $a does not match the seal" >&2; return 1; }
   printf '%s' "$a"; }
 
 # Older archives go only after the new one is sealed, so until that moment
 # the store always has something loadable in it.
-prune(){
-  local keep="$1" f n=0
-  for f in "$STORE"/qubes-backup-*; do
+prune(){ # <name to keep> <prefix of the ones to consider>
+  local keep="$1" pref="$2" f n=0
+  for f in "$pref"*; do
     [ -e "$f" ] || continue
     [ "$(basename "$f")" = "$keep" ] && continue
     rm -f "$f" && n=$((n+1))
@@ -129,7 +133,7 @@ load)
   case "${1:-}" in *qubes-backup-*) WANT=$(basename "$1"); shift ;; esac
   [ $# -gt 0 ] || { echo LOAD-FAIL-NOVM; exit 1; }
   mountpoint -q "$STORE" || { echo LOAD-FAIL-NOSTORE; exit 1; }
-  A=$(arc_pick) || { echo LOAD-REFUSE; exit 1; }
+  A=$(seal_pick "$ST") || { echo LOAD-REFUSE; exit 1; }
   if [ -n "$WANT" ] && [ "$WANT" != "$A" ]; then
     echo "LOAD-REFUSE-NOTNEWEST: asked for $WANT, sealed is $A"; exit 1; fi
   ram_check || { echo LOAD-REFUSE-NOTRAM; exit 1; }
@@ -146,7 +150,7 @@ load)
     for v in $NEW; do qvm-remove -f "$v" >/dev/null 2>&1; done
     echo LOAD-FAIL-NOTINRAM; exit 1
   fi
-  G=$(st_get gen); st_put "$G" "$A" "$(st_get sha)" "$G"
+  G=$(st_get "$ST" gen); st_put "$ST" "$G" "$A" "$(st_get "$ST" sha)" "$G"
   echo "LOAD-OK archive=$A generation=$G in-ram=$(echo $NEW | wc -w)" ;;
 air)
   umount "$STORE" 2>/dev/null
@@ -165,9 +169,9 @@ save)
   A=$(ls -1 "$STORE" | grep -Fxv -f "$B" | grep '^qubes-backup-' | tail -1); rm -f "$B"
   [ -n "$A" ] || { echo SAVE-FAIL-NOARC; exit 1; }
   H=$(arc_hash "$A") || { echo SAVE-FAIL-HASH; exit 1; }
-  G=$(st_get gen); G=$(( ${G:-0} + 1 ))
-  st_put "$G" "$A" "$H" "$G" || { echo SAVE-FAIL-SEAL; exit 1; }
-  N=$(prune "$A")
+  G=$(st_get "$ST" gen); G=$(( ${G:-0} + 1 ))
+  st_put "$ST" "$G" "$A" "$H" "$G" || { echo SAVE-FAIL-SEAL; exit 1; }
+  N=$(prune "$A" "$STORE/qubes-backup-")
   echo "SAVE-OK generation=$G archive=$A pruned=$N" ;;
 seal)
   # The hatch, and the way in from an older store that has archives but no
@@ -178,16 +182,63 @@ seal)
   mountpoint -q "$STORE" || { echo SEAL-FAIL-NOSTORE; exit 1; }
   [ -f "$STORE/$A" ] || { echo "SEAL-FAIL: no $A in the store"; exit 1; }
   H=$(arc_hash "$A") || { echo SEAL-FAIL-HASH; exit 1; }
-  G=$(st_get gen); G=$(( ${G:-0} + 1 ))
-  st_put "$G" "$A" "$H" "$G" || { echo SEAL-FAIL; exit 1; }
+  G=$(st_get "$ST" gen); G=$(( ${G:-0} + 1 ))
+  st_put "$ST" "$G" "$A" "$H" "$G" || { echo SEAL-FAIL; exit 1; }
   echo "SEAL-OK generation=$G archive=$A (older archives left alone, the next save prunes them)" ;;
+state-save)
+  # A whole qube image is a heavy thing to carry for a messenger whose secret
+  # is a few megabytes of keys and database. This keeps only what the list
+  # names, so the qube itself can be an ordinary one, built from a stock
+  # template in RAM and thrown away at the end.
+  open_vol "${2:?a passphrase is required}" || { echo STATE-SAVE-FAIL-OPEN; exit 1; }
+  Q="${3:?a qube name is required}"; mount_store
+  LIST="$STORE/state-$Q.list"; SEAL="$STORE/state-$Q.seal"
+  [ -f "$LIST" ] || { echo "STATE-SAVE-FAIL: no $LIST, so nothing says what is worth keeping"; exit 1; }
+  qvm-check --running "$Q" >/dev/null 2>&1 || { echo "STATE-SAVE-FAIL: $Q is not running"; exit 1; }
+  PATHS=$(grep -v '^[[:space:]]*#' "$LIST" | grep -v '^[[:space:]]*stop:' \
+          | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s#^/##' | grep -v '^$')
+  [ -n "$PATHS" ] || { echo "STATE-SAVE-FAIL: $LIST names no paths"; exit 1; }
+  # A messenger database copied while the messenger is writing to it is worth
+  # nothing, so the list may carry a line that closes the app first.
+  STOP=$(sed -n 's/^[[:space:]]*stop:[[:space:]]*//p' "$LIST" | head -1)
+  if [ -n "$STOP" ]; then
+    qvm-run --user root --pass-io "$Q" "$STOP" </dev/null >/dev/null 2>&1 || true
+    sleep 3
+  fi
+  B="state-$Q-$(date -u +%Y-%m-%dT%H%M%S).tgz"
+  qvm-run --user root --pass-io "$Q" "tar czf - -C / $PATHS" </dev/null > "$STORE/$B" \
+    || { rm -f "$STORE/$B"; echo STATE-SAVE-FAIL; exit 1; }
+  [ -s "$STORE/$B" ] || { rm -f "$STORE/$B"; echo "STATE-SAVE-FAIL: the bundle came out empty"; exit 1; }
+  tar tzf "$STORE/$B" >/dev/null 2>&1 \
+    || { rm -f "$STORE/$B"; echo "STATE-SAVE-FAIL: the bundle does not read back"; exit 1; }
+  sync
+  H=$(arc_hash "$B")
+  G=$(st_get "$SEAL" gen); G=$(( ${G:-0} + 1 ))
+  st_put "$SEAL" "$G" "$B" "$H" "$G" || { echo STATE-SAVE-FAIL-SEAL; exit 1; }
+  N=$(prune "$B" "$STORE/state-$Q-")
+  echo "STATE-SAVE-OK generation=$G bundle=$B bytes=$(stat -c%s "$STORE/$B") pruned=$N" ;;
+state-load)
+  Q="${2:?a qube name is required}"
+  mountpoint -q "$STORE" || { echo STATE-LOAD-FAIL-NOSTORE; exit 1; }
+  SEAL="$STORE/state-$Q.seal"
+  B=$(seal_pick "$SEAL") || { echo STATE-LOAD-REFUSE; exit 1; }
+  qvm-check --running "$Q" >/dev/null 2>&1 || { echo "STATE-LOAD-FAIL: $Q is not running"; exit 1; }
+  qvm-run --user root --pass-io "$Q" "tar xzf - -C /" < "$STORE/$B" \
+    || { echo STATE-LOAD-FAIL; exit 1; }
+  G=$(st_get "$SEAL" gen); st_put "$SEAL" "$G" "$B" "$(st_get "$SEAL" sha)" "$G"
+  echo "STATE-LOAD-OK bundle=$B generation=$G" ;;
 ram)
   if ram_check; then echo "RAM-OK pool r1 is backed by tmpfs"; else echo RAM-FAIL; exit 1; fi ;;
 state)
   mountpoint -q "$STORE" || { echo "the store is not mounted"; exit 1; }
   if [ -f "$ST" ]; then cat "$ST"; else echo "no seal"; fi
   echo "--- archives in the store:"
-  ls -1 "$STORE"/qubes-backup-* 2>/dev/null | xargs -r -n1 basename || true ;;
+  ls -1 "$STORE"/qubes-backup-* 2>/dev/null | xargs -r -n1 basename || true
+  for f in "$STORE"/state-*.seal; do
+    [ -e "$f" ] || continue
+    q=$(basename "$f" .seal); q=${q#state-}
+    echo "--- state of $q: generation $(st_get "$f" gen), $(st_get "$f" arc)"
+  done ;;
 down)
   shift
   for v in "$@"; do qvm-shutdown --wait "$v" >/dev/null 2>&1; qvm-remove -f "$v" >/dev/null 2>&1; done
@@ -197,5 +248,5 @@ down)
   umount "$STORE" 2>/dev/null; vgchange -an vg1 >/dev/null 2>&1
   cryptsetup close ghosth 2>/dev/null
   echo DOWN-OK ;;
-*) echo "ghost {up|load|air|save|state|seal|ram|down} ..." ;;
+*) echo "ghost {up|load|air|save|state|seal|ram|state-save|state-load|down} ..." ;;
 esac
