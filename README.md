@@ -171,15 +171,6 @@ Only I have run this, on one laptop. Treat results accordingly.
 
 [linuxuser1](https://forum.qubes-os.org/u/linuxuser1)'s live mode thread is the base this now sits on, linked at the top.
 
-Related threads worth reading: Qubes in tmpfs (11127), Qubes OS 100% in RAM
-(38913), ephemeral DVMs in fully ephemeral thin pools (42545).
-
-[newqube](https://forum.qubes-os.org/u/newqube) pointed me at the live mode thread when I was still defending my own
-worse version. Credit for the work itself is [linuxuser1](https://forum.qubes-os.org/u/linuxuser1)'s.
-
-[FranklyFlawless](https://forum.qubes-os.org/u/FranklyFlawless) reviewed the code and the threat model and found real problems in
-both. Issues 1 to 8 came out of that review.
-
 ## Contributing
 
 Bugs in the amnesic session belong in [linuxuser1](https://forum.qubes-os.org/u/linuxuser1)'s thread, not here. Bugs in the
