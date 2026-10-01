@@ -119,6 +119,26 @@ heals the rollback. Open.
 
 Sterility checks before power off. In the older teardown script, not in `ghost`.
 
+## Open questions, and where they stand
+
+Other on-disk writes during a restore into a non-default pool. Still open, I
+have not audited it.
+
+Whether repointing the default pool is the right way to force restore
+placement. Answered by trying: there is no option for the target pool, so
+switching the default pool for the duration is what works.
+
+dom0 logs recording qube names. Gone, and not because I solved it. The amnesic
+session makes dom0's root ephemeral, so there is nothing left to scrub. That
+whole class went away with the design change.
+
+Whether `noswap` `tmpfs` is enough against paging. Still open. The swap here is
+zram and stays in memory, but I have not proven the general case.
+
+Paranoid-mode restore. Dropped. The default policy refuses the volume import
+and I am not using it. Allowing it needs a policy for that call, which I have
+not written.
+
 ## Known limits
 
 The rework is not finished, and the docs describe where it is going as much as
