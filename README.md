@@ -138,8 +138,17 @@ The qube itself can then be an ordinary one, built from a stock template in RAM
 and discarded at the end. Proven against a stand-in filesystem in
 `tests/state-bundle.sh`, not yet against a real messenger.
 
-Matrix: find out whether the session really rotates or whether a key re-request
-heals the rollback. Open.
+Matrix: whether the session really rotates, and whether a key re-request heals
+the rollback. Answered by testing, and it corrects what I reported earlier. The
+session does rotate: adding a member changed the Megolm session id, and the
+message sent after the rollback used the new session. A client rolled back to a
+snapshot taken before that key reached it could not read that message, while an
+untouched client in the same room read it fine. Run without the rotation, the
+same rollback costs nothing. So Matrix survives a rollback only for as long as
+the session does not change; across a rotation it loses messages too. The
+second half is still open: no key re-request went out on its own, and a single
+device with no key backup has nothing to request from, so a real client with
+key backup enabled may well heal where this one did not.
 
 Sterility checks before power off. Done. `down` now ends with a verdict
 instead of a cheerful word: it checks that no qube still has a volume in the
