@@ -63,6 +63,7 @@ One script does the whole cycle.
     dom0$ sudo ghost air                      close the store, work with it gone
     dom0$ sudo ghost save <passphrase> <qubes>  put it back open and save
     dom0$ sudo ghost down <qubes>             remove everything, close everything
+    dom0$ sudo ghost ram                      check the pool really is in RAM
     dom0$ sudo ghost state                    what the store says is sealed
     dom0$ sudo ghost seal <archive>           seal an archive that has no seal yet
 
@@ -86,10 +87,19 @@ refuses with "prohibited while rpool_tmeta is active". And qvm-backup-restore
 has no option for which pool to restore into, so the default pool is switched
 to the RAM pool for the duration and put back afterwards.
 
-The refusals can be exercised without Qubes and without a hidden volume:
-`bash tests/forward-only.sh` in the repository stubs out the Qubes commands and
-checks the sealing, the refusals and the pruning, including what an interrupted
-save leaves behind.
+`load` also refuses to restore into anything that is not RAM. Before it starts
+it walks the chain - the pool `r1`, the volume group `rvg`, its single physical
+volume, the loop file behind that, and the filesystem the file sits on, which
+has to be tmpfs - and afterwards it checks where each restored volume actually
+landed. If any of them is outside the RAM pool, the restored qubes are removed
+and the load fails. For an AppVM the root volume is expected to be in its
+template's pool and is not counted against it; for a standalone or a template
+it is, because those own their root.
+
+Both sets of refusals can be exercised without Qubes and without a hidden
+volume: `bash tests/forward-only.sh` and `bash tests/ram-placement.sh` stub out
+the Qubes and LVM commands and check the sealing, the pruning, what an
+interrupted save leaves behind, and every link of the RAM chain in turn.
 
 ## A session, step by step
 

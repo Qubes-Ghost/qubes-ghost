@@ -4,6 +4,7 @@
 # load [archive] <qubes..> restore into RAM, sealed archive only
 # air                   close the store, work with it gone from the system
 # save <passphrase> <qubes..> save, seal, prune the older archives
+# ram                   check that the RAM pool is really in RAM
 # state                 what the store says is sealed
 # seal <archive>        seal an archive already in the store, as a new generation
 # down <qubes..>        remove the qubes and the pool, close everything
@@ -18,6 +19,52 @@ open_vol(){ [ -e /dev/mapper/ghosth ] && return 0
   vgchange -ay vg1 >/dev/null; }
 mount_store(){ mkdir -p "$STORE"; mountpoint -q "$STORE" || mount /dev/vg1/store "$STORE"; }
 fix_rpool(){ vgchange -an rvg >/dev/null 2>&1; vgchange -ay rvg >/dev/null 2>&1; }
+
+# --- the RAM pool being RAM ---------------------------------------------
+# A pool named r1 proves nothing on its own: a stale or planted registration
+# of that name could point at disk, and every later check would pass while the
+# data landed on a platter. So follow the whole chain instead - pool r1, the
+# volume group rvg, its one physical volume, the loop file behind it, and the
+# filesystem that file lives on, which has to be tmpfs.
+pool_field(){ qvm-pool info "$1" 2>/dev/null | awk -v k="$2" '$1==k{print $2; exit}'; }
+vol_pool(){ qvm-volume info "$1:$2" 2>/dev/null | awk '$1=="pool"{print $2}'; }
+
+ram_check(){
+  local d vg tp pv n back fs opts
+  d=$(pool_field r1 driver)
+  [ "$d" = lvm_thin ] || { echo "pool r1 has driver '${d:-none}', expected lvm_thin" >&2; return 1; }
+  vg=$(pool_field r1 volume_group)
+  [ "$vg" = rvg ] || { echo "pool r1 uses volume group '${vg:-none}', expected rvg" >&2; return 1; }
+  tp=$(pool_field r1 thin_pool)
+  [ "$tp" = rpool ] || { echo "pool r1 uses thin pool '${tp:-none}', expected rpool" >&2; return 1; }
+  n=$(pvs --noheadings -o pv_name,vg_name 2>/dev/null | awk '$2=="rvg"{print $1}' | wc -l)
+  [ "$n" = 1 ] || { echo "volume group rvg has $n physical volumes, expected exactly one" >&2; return 1; }
+  pv=$(pvs --noheadings -o pv_name,vg_name 2>/dev/null | awk '$2=="rvg"{print $1}')
+  back=$(losetup -n -O BACK-FILE "$pv" 2>/dev/null)
+  [ -n "$back" ] || { echo "$pv is not a loop device, so rvg is not backed by a file in RAM" >&2; return 1; }
+  fs=$(findmnt -n -o FSTYPE --target "$back" 2>/dev/null)
+  [ "$fs" = tmpfs ] || { echo "the loop file $back sits on ${fs:-an unknown filesystem}, not tmpfs - that is disk" >&2; return 1; }
+  opts=",$(findmnt -n -o OPTIONS --target "$back" 2>/dev/null),"
+  case "$opts" in *,noswap,*) ;;
+    *) echo "warning: the tmpfs holding $back is mounted without noswap, its pages could reach swap" >&2 ;; esac
+  return 0; }
+
+# Every volume of a restored qube has to sit in r1. For an AppVM the root
+# volume legitimately belongs to its template's pool, so only a standalone or
+# a template is checked for root - otherwise a restored standalone could put
+# its whole filesystem on disk and still be reported as a success.
+placement_check(){
+  local vm v p vols bad=0
+  for vm in "$@"; do
+    vols="private volatile"
+    case "$(qvm-prefs "$vm" klass 2>/dev/null)" in
+      StandaloneVM|TemplateVM) vols="root private volatile" ;; esac
+    for v in $vols; do
+      p=$(vol_pool "$vm" "$v"); [ -z "$p" ] && continue
+      [ "$p" = r1 ] || { echo "LEAK: $vm:$v is in pool '$p', not in RAM" >&2; bad=1; }
+    done
+  done
+  return $bad; }
 
 # --- forward only ------------------------------------------------------
 # The store carries a seal: gen, the generation number, one up per save;
@@ -62,13 +109,18 @@ up)
   open_vol "${2:?a passphrase is required}" || { echo UP-FAIL-OPEN; exit 1; }
   mount_store
   mkdir -p /mnt/ram
-  mountpoint -q /mnt/ram || mount -t tmpfs -o size=40G tmpfs /mnt/ram
+  # noswap keeps these pages out of swap; kernels before 6.4 do not have it,
+  # and there the swap-guard scripts are the fallback
+  mountpoint -q /mnt/ram || mount -t tmpfs -o size=40G,noswap tmpfs /mnt/ram 2>/dev/null \
+    || mountpoint -q /mnt/ram || mount -t tmpfs -o size=40G tmpfs /mnt/ram \
+    || { echo UP-FAIL-TMPFS; exit 1; }
   [ -f /mnt/ram/d.img ] || truncate -s 38G /mnt/ram/d.img
   L=$(losetup -j /mnt/ram/d.img | cut -d: -f1)
   [ -n "$L" ] || L=$(losetup -f --show /mnt/ram/d.img)
   vgs rvg >/dev/null 2>&1 || { pvcreate -ff -y "$L" >/dev/null; vgcreate rvg "$L" >/dev/null; lvcreate -l 95%FREE -T rvg/rpool >/dev/null; }
   fix_rpool
   qvm-pool list | grep -qw r1 || qvm-pool add r1 lvm_thin -o volume_group=rvg -o thin_pool=rpool -o revisions_to_keep=1 >/dev/null
+  ram_check || { echo UP-FAIL-NOTRAM; exit 1; }
   echo UP-OK ;;
 load)
   shift
@@ -80,14 +132,22 @@ load)
   A=$(arc_pick) || { echo LOAD-REFUSE; exit 1; }
   if [ -n "$WANT" ] && [ "$WANT" != "$A" ]; then
     echo "LOAD-REFUSE-NOTNEWEST: asked for $WANT, sealed is $A"; exit 1; fi
+  ram_check || { echo LOAD-REFUSE-NOTRAM; exit 1; }
   fix_rpool
+  BEFORE=$(qvm-ls --raw-list | sort)
   OLD=$(qubes-prefs default_pool); echo "$OLD" > /run/ghost.oldpool
   qubes-prefs default_pool r1
   qvm-backup-restore --passphrase-file="$BP" "$STORE/$A" "$@"; R=$?
   qubes-prefs default_pool "$OLD"
   [ $R -eq 0 ] || { echo LOAD-FAIL; exit 1; }
+  NEW=$(comm -13 <(echo "$BEFORE") <(qvm-ls --raw-list | sort))
+  if ! placement_check $NEW; then
+    echo "removing the restored qubes, they are not all in RAM" >&2
+    for v in $NEW; do qvm-remove -f "$v" >/dev/null 2>&1; done
+    echo LOAD-FAIL-NOTINRAM; exit 1
+  fi
   G=$(st_get gen); st_put "$G" "$A" "$(st_get sha)" "$G"
-  echo "LOAD-OK archive=$A generation=$G" ;;
+  echo "LOAD-OK archive=$A generation=$G in-ram=$(echo $NEW | wc -w)" ;;
 air)
   umount "$STORE" 2>/dev/null
   vgchange -an vg1 >/dev/null 2>&1
@@ -121,6 +181,8 @@ seal)
   G=$(st_get gen); G=$(( ${G:-0} + 1 ))
   st_put "$G" "$A" "$H" "$G" || { echo SEAL-FAIL; exit 1; }
   echo "SEAL-OK generation=$G archive=$A (older archives left alone, the next save prunes them)" ;;
+ram)
+  if ram_check; then echo "RAM-OK pool r1 is backed by tmpfs"; else echo RAM-FAIL; exit 1; fi ;;
 state)
   mountpoint -q "$STORE" || { echo "the store is not mounted"; exit 1; }
   if [ -f "$ST" ]; then cat "$ST"; else echo "no seal"; fi
@@ -135,5 +197,5 @@ down)
   umount "$STORE" 2>/dev/null; vgchange -an vg1 >/dev/null 2>&1
   cryptsetup close ghosth 2>/dev/null
   echo DOWN-OK ;;
-*) echo "ghost {up|load|air|save|state|seal|down} ..." ;;
+*) echo "ghost {up|load|air|save|state|seal|ram|down} ..." ;;
 esac

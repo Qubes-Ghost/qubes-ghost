@@ -95,6 +95,7 @@ split: the large things here hold public data, the secrets are small.
     scripts/ghost-ram-pool.sh  older separate RAM pool setup
     swap-guard/                detect swap, reset zram if it finds it, warn loudly
     tests/forward-only.sh      proves the forward-only refusals, no Qubes needed
+    tests/ram-placement.sh     proves it refuses to restore anywhere but RAM
 
 `ghost` opens the store itself, you give it the passphrase. The four older
 scripts expect it already open and mounted.
@@ -115,8 +116,11 @@ Refuse to load anything but the newest archive, and prune old ones on save.
 Done. `tests/forward-only.sh` covers the refusals, including an interrupted
 save: the previous seal survives it and stays loadable.
 
-Check that restored volumes really landed in RAM and fail closed if not. Next.
-The older `ghost-load.sh` does it, `ghost` does not yet.
+Check that restored volumes really landed in RAM and fail closed if not. Done.
+`ghost` now follows the whole chain before it restores anything - pool, volume
+group, physical volume, loop file, filesystem - and after the restore it checks
+where each volume actually went, removing the restored qubes if any of them is
+outside RAM. `tests/ram-placement.sh` covers it.
 
 Hash the archive and mark it complete only after verifying. Done, it came with
 the forward-only work: the seal is written after the hash is taken, and the
@@ -162,8 +166,14 @@ The forward-only seal lives in the store, so it is a guard against mistakes and
 against a tampered archive, not against an adversary who can restore an old copy
 of the whole volume.
 
-The placement checks trust what the storage stack reports. If a pool lies about
-where a volume lives, the check passes and the guarantee is gone.
+The placement checks trust what the storage stack reports. The chain from the
+pool down to the tmpfs is followed rather than assumed, so a pool named `r1`
+that quietly points at disk is caught, but if LVM or the loop layer itself
+misreports, the check passes and the guarantee is gone.
+
+`noswap` is requested when the tmpfs is mounted and its absence is only a
+warning, because kernels before 6.4 have no such option. On those, the
+swap-guard scripts are what stands between the pool and swap.
 
 Only I have run this, on one laptop. Treat results accordingly.
 

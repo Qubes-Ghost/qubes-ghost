@@ -12,43 +12,8 @@ T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/stub" "$T/store"
 
-cat > "$T/stub/cryptsetup" <<'E'
-#!/bin/sh
-exit 0
-E
-cat > "$T/stub/vgchange" <<'E'
-#!/bin/sh
-exit 0
-E
-cat > "$T/stub/mountpoint" <<'E'
-#!/bin/sh
-exit 0
-E
-cat > "$T/stub/qvm-shutdown" <<'E'
-#!/bin/sh
-exit 0
-E
-cat > "$T/stub/qubes-prefs" <<'E'
-#!/bin/sh
-[ "$1" = default_pool ] && [ $# -eq 1 ] && echo vm-pool
-exit 0
-E
-cat > "$T/stub/qvm-backup" <<'E'
-#!/bin/sh
-# With FAIL_BACKUP set, leave a partial file behind and fail, the way an
-# interrupted backup would.
-if [ -n "$FAIL_BACKUP" ]; then
-  head -c 1000 /dev/urandom > "$GHOST_STORE/qubes-backup-PARTIAL-$$"; exit 1
-fi
-sleep 1   # so two archives in one run get different timestamps
-head -c 200000 /dev/urandom > "$GHOST_STORE/qubes-backup-$(date -u +%Y-%m-%dT%H%M%S)"
-exit 0
-E
-cat > "$T/stub/qvm-backup-restore" <<'E'
-#!/bin/sh
-exit 0
-E
-chmod +x "$T/stub"/*
+. "$(dirname "$0")/lib-stubs.sh"
+make_stubs "$T/stub"
 
 export PATH="$T/stub:$PATH"
 export GHOST_STORE="$T/store"
