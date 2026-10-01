@@ -38,6 +38,28 @@ https://forum.qubes-os.org/t/qubes-ghost-amnesic-session-portable-qubes-on-encry
 
 So the workload needs to persist somewhere that is not the internal disk.
 
+## Three ways to run a qube
+
+Pick by what the qube is.
+
+Whole thing in RAM. The qube is standalone, it goes into memory and the store
+closes behind it and is gone from the system. This is the only one with a real
+air gap. Small and secret things go here: the vault with keys, a wallet, a
+messenger. Gigabytes, not more.
+
+Template in the store, only the qube's own data in RAM. The store stays open so
+there is no air gap, but memory costs little and one template is shared by
+several qubes. Use it when the system is heavy and the data is light: a build
+environment, a browser qube on a large template.
+
+Whole thing stays in the store. A chain node, an indexer. Hundreds of gigabytes,
+they will never fit in memory, and that is not a defeat: there are no secrets
+there, a public chain is public by definition. The strong protection goes to
+what deserves it instead of to everything.
+
+What I run: keys and wallet the first way, node and indexer the third. The
+second is for qubes that are a bit large for memory but hold little data.
+
 ## The two rules
 
 Forward only. The newest save is the only valid one. Restoring an older archive
