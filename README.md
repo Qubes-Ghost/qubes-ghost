@@ -63,8 +63,8 @@ second is for qubes that are a bit large for memory but hold little data.
 ## The two rules
 
 Forward only. The newest save is the only valid one. Restoring an older archive
-is treated as an error, not as a recovery option. `ghost-save.sh` refuses to
-write an archive older than the one on the volume.
+is an error, not a recovery option. Nothing enforces this yet, it is the first
+item on the roadmap. Until then it is a rule you keep by hand.
 
 Work in RAM with the store detached. The qubes are restored from the store into
 a pool that lives in RAM, then the store is closed and removed from the system.
@@ -85,15 +85,39 @@ split: the large things here hold public data, the secrets are small.
     scripts/ghost-save.sh      older separate save step
     scripts/ghost-teardown.sh  older separate teardown step
     scripts/ghost-ram-pool.sh  older separate RAM pool setup
-    swap-guard/                refuse to run if swap is enabled, and say so loudly
+    swap-guard/                detect swap, reset zram if it finds it, warn loudly
 
-The scripts take an already opened volume. Open it in the vault and point them
-at the mount.
+`ghost` opens the store itself, you give it the passphrase. The four older
+scripts expect it already open and mounted.
 
 ## Deployment
 
 See DEPLOYMENT.md. Read it before running anything, the teardown step removes
 qubes.
+
+## Roadmap
+
+The cycle itself, done. Qubes restored into RAM, store closed while working,
+changes saved back, proven on real hardware.
+
+One script for the whole cycle, done.
+
+Refuse to load anything but the newest archive, and prune old ones on save.
+Not done, next.
+
+Check that restored volumes really landed in RAM and fail closed if not. Not
+done in `ghost`, the older `ghost-load.sh` does it.
+
+Hash the archive and mark it complete only after verifying. Not done in
+`ghost`, the older `ghost-save.sh` does it.
+
+Keep only the crypto state of a messenger instead of a whole qube image.
+Not started.
+
+Matrix: find out whether the session really rotates or whether a key re-request
+heals the rollback. Open.
+
+Sterility checks before power off. In the older teardown script, not in `ghost`.
 
 ## Known limits
 
