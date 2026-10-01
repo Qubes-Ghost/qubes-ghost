@@ -1,13 +1,13 @@
 # Qubes Ghost
 
-This is not an amnesic mode.
+Read this first. This is a small addition on top of someone else's work, not a
+project of its own. The amnesic session it runs in is linuxuser1's live mode,
+start there:
 
-For the amnesic session use linuxuser1's live mode work:
 https://forum.qubes-os.org/t/qubes-os-live-mode-dom0-in-ram-non-persistent-boot-ram-wipe-protection-against-forensics-tails-mode-hardening-dom0-root-read-only-paranoid-security-ephemeral-encryption/38868
 
-This repo is the layer on top of it. Workload qubes that live on encrypted
-removable media, get loaded into the session, stay physically detached while you
-work, and are only ever saved forward.
+What is mine is only the layer that carries the workload: qubes kept in an
+encrypted store, loaded into RAM, worked on with the store closed, saved back.
 
 ## Status
 
