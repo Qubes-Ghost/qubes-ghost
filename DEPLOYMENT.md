@@ -59,16 +59,37 @@ an empty directory called `qubes` inside it, close it again.
 One script does the whole cycle.
 
     dom0$ sudo ghost up <passphrase>          open the store, bring up the RAM pool
-    dom0$ sudo ghost load <archive> <qubes>   restore them into RAM
+    dom0$ sudo ghost load <qubes>             restore the sealed archive into RAM
     dom0$ sudo ghost air                      close the store, work with it gone
     dom0$ sudo ghost save <passphrase> <qubes>  put it back open and save
     dom0$ sudo ghost down <qubes>             remove everything, close everything
+    dom0$ sudo ghost state                    what the store says is sealed
+    dom0$ sudo ghost seal <archive>           seal an archive that has no seal yet
+
+`load` picks the archive itself, because only one archive is ever valid: the one
+sealed by the last save. You can still name it, as in
+`ghost load qubes-backup-2026-10-01T1130 vault`, but the name is then checked
+against the seal rather than taken as a choice, and an older one is refused.
+`save` seals the new archive before deleting the older ones, so there is no
+moment where the store has nothing loadable in it.
+
+`seal` exists for two cases and is deliberately blunt about both. A store
+written by an earlier version of these scripts has archives but no seal, and
+without a seal nothing loads at all. And if you ever do have to go back to an
+older archive, this is the way: it is a decision you type out in full, the
+archive name is never guessed for you, and it is recorded as a new generation,
+so the store shows that it happened.
 
 Two things it handles that bit me when I did it by hand. The thin pool in RAM
 has to be deactivated and activated again before a restore, otherwise LVM
 refuses with "prohibited while rpool_tmeta is active". And qvm-backup-restore
 has no option for which pool to restore into, so the default pool is switched
 to the RAM pool for the duration and put back afterwards.
+
+The refusals can be exercised without Qubes and without a hidden volume:
+`bash tests/forward-only.sh` in the repository stubs out the Qubes commands and
+checks the sealing, the refusals and the pruning, including what an interrupted
+save leaves behind.
 
 ## A session, step by step
 

@@ -1,18 +1,62 @@
 #!/bin/bash
 # ghost - цикл: скрытый том <-> кубы в оперативной памяти
 # up <фраза>            открыть том, поднять пул в ОЗУ
-# load <архив> <кубы..> восстановить кубы из тома в ОЗУ
+# load [слепок] <кубы..> восстановить кубы в ОЗУ (только свежий запечатанный)
 # air                   закрыть том (работа без хранилища в системе)
-# save <фраза> <кубы..> открыть том и сохранить кубы в него
+# save <фраза> <кубы..> сохранить кубы, запечатать, снести старые слепки
+# state                 что записано в хранилище
+# seal <слепок>         запечатать лежащий слепок как новое поколение
 # down <кубы..>         снести кубы, пул и всё закрыть
 set -u
-D=/dev/qubes_dom0/data
+D=${GHOST_DEV:-/dev/qubes_dom0/data}
 BP=/root/.ghost.bp
+STORE=${GHOST_STORE:-/mnt/store}
+ST="$STORE/ghost.state"
+
 open_vol(){ [ -e /dev/mapper/ghosth ] && return 0
   printf '%s' "$1" | cryptsetup --type tcrypt --veracrypt --tcrypt-hidden open "$D" ghosth --key-file=- || return 1
   vgchange -ay vg1 >/dev/null; }
-mount_store(){ mkdir -p /mnt/store; mountpoint -q /mnt/store || mount /dev/vg1/store /mnt/store; }
+mount_store(){ mkdir -p "$STORE"; mountpoint -q "$STORE" || mount /dev/vg1/store "$STORE"; }
 fix_rpool(){ vgchange -an rvg >/dev/null 2>&1; vgchange -ay rvg >/dev/null 2>&1; }
+
+# --- только вперёд -----------------------------------------------------
+# В хранилище лежит печать: gen - номер поколения, растёт на каждом save;
+# arc - имя слепка, единственного годного к загрузке; sha - его хеш;
+# seen - самое новое поколение, которое уже загружали.
+st_get(){ [ -f "$ST" ] && sed -n "s/^$1=//p" "$ST" | tail -1; }
+
+st_put(){ # gen arc sha seen - пишем целиком, через временный файл
+  local t="$STORE/.ghost.state.new"
+  printf 'gen=%s\narc=%s\nsha=%s\nseen=%s\nsealed=%s\n' \
+    "$1" "$2" "$3" "$4" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$t" || return 1
+  sync "$t" 2>/dev/null
+  mv -f "$t" "$ST" || return 1
+  sync "$STORE" 2>/dev/null; return 0; }
+
+arc_hash(){ sha256sum "$STORE/$1" | cut -d' ' -f1; }
+
+# Имя годного слепка на stdout, причина отказа на stderr.
+arc_pick(){
+  local g a s n
+  g=$(st_get gen); a=$(st_get arc); s=$(st_get sha)
+  [ -n "$g" ] && [ -n "$a" ] && [ -n "$s" ] || { echo "в хранилище нет печати" >&2; return 1; }
+  [ -f "$STORE/$a" ] || { echo "запечатанный слепок $a пропал из хранилища" >&2; return 1; }
+  n=$(st_get seen); n=${n:-0}
+  [ "$g" -ge "$n" ] || { echo "хранилище откатили: печать поколения $g, а загружали уже $n" >&2; return 1; }
+  [ "$(arc_hash "$a")" = "$s" ] || { echo "хеш слепка $a не совпал с печатью" >&2; return 1; }
+  printf '%s' "$a"; }
+
+# Старые слепки сносятся только после того, как новый запечатан:
+# до этого момента в хранилище всегда есть что загрузить.
+prune(){
+  local keep="$1" f n=0
+  for f in "$STORE"/qubes-backup-*; do
+    [ -e "$f" ] || continue
+    [ "$(basename "$f")" = "$keep" ] && continue
+    rm -f "$f" && n=$((n+1))
+  done
+  echo "$n"; }
+
 case "${1:-}" in
 up)
   open_vol "${2:?нужна фраза}" || { echo UP-FAIL-OPEN; exit 1; }
@@ -27,15 +71,25 @@ up)
   qvm-pool list | grep -qw r1 || qvm-pool add r1 lvm_thin -o volume_group=rvg -o thin_pool=rpool -o revisions_to_keep=1 >/dev/null
   echo UP-OK ;;
 load)
-  A="${2:?нужен архив}"; shift 2
+  shift
+  # имя слепка можно указать - оно будет проверено, а не принято на веру
+  WANT=""
+  case "${1:-}" in *qubes-backup-*) WANT=$(basename "$1"); shift ;; esac
+  [ $# -gt 0 ] || { echo LOAD-FAIL-NOVM; exit 1; }
+  mountpoint -q "$STORE" || { echo LOAD-FAIL-NOSTORE; exit 1; }
+  A=$(arc_pick) || { echo LOAD-REFUSE; exit 1; }
+  if [ -n "$WANT" ] && [ "$WANT" != "$A" ]; then
+    echo "LOAD-REFUSE-NOTNEWEST: просили $WANT, запечатан $A"; exit 1; fi
   fix_rpool
   OLD=$(qubes-prefs default_pool); echo "$OLD" > /run/ghost.oldpool
   qubes-prefs default_pool r1
-  qvm-backup-restore --passphrase-file="$BP" "$A" "$@"; R=$?
+  qvm-backup-restore --passphrase-file="$BP" "$STORE/$A" "$@"; R=$?
   qubes-prefs default_pool "$OLD"
-  [ $R -eq 0 ] && echo LOAD-OK || echo LOAD-FAIL ;;
+  [ $R -eq 0 ] || { echo LOAD-FAIL; exit 1; }
+  G=$(st_get gen); st_put "$G" "$A" "$(st_get sha)" "$G"
+  echo "LOAD-OK слепок=$A поколение=$G" ;;
 air)
-  umount /mnt/store 2>/dev/null
+  umount "$STORE" 2>/dev/null
   vgchange -an vg1 >/dev/null 2>&1
   cryptsetup close ghosth 2>/dev/null
   [ -e /dev/mapper/ghosth ] && { echo AIR-FAIL; exit 1; }
@@ -43,16 +97,44 @@ air)
 save)
   open_vol "${2:?нужна фраза}" || { echo SAVE-FAIL-OPEN; exit 1; }
   shift 2; mount_store
+  [ $# -gt 0 ] || { echo SAVE-FAIL-NOVM; exit 1; }
   for v in "$@"; do qvm-shutdown --wait "$v" >/dev/null 2>&1; done
-  qvm-backup --yes --passphrase-file="$BP" /mnt/store "$@" && echo SAVE-OK || echo SAVE-FAIL ;;
+  B=$(mktemp); ls -1 "$STORE" > "$B"
+  qvm-backup --yes --passphrase-file="$BP" "$STORE" "$@" || { rm -f "$B"; echo SAVE-FAIL; exit 1; }
+  sync
+  A=$(ls -1 "$STORE" | grep -Fxv -f "$B" | grep '^qubes-backup-' | tail -1); rm -f "$B"
+  [ -n "$A" ] || { echo SAVE-FAIL-NOARC; exit 1; }
+  H=$(arc_hash "$A") || { echo SAVE-FAIL-HASH; exit 1; }
+  G=$(st_get gen); G=$(( ${G:-0} + 1 ))
+  st_put "$G" "$A" "$H" "$G" || { echo SAVE-FAIL-SEAL; exit 1; }
+  N=$(prune "$A")
+  echo "SAVE-OK поколение=$G слепок=$A снесено_старых=$N" ;;
+seal)
+  # Лазейка и средство перехода: в хранилище уже лежит слепок, а печати нет
+  # (старая версия ghost её не ставила). Имя требуется писать руками - чтобы
+  # так нельзя было загрузить старое, не заметив. Запечатанное идёт новым
+  # поколением, то есть след остаётся в самой печати.
+  shift
+  A="${1:?нужно имя слепка, само не угадывается}"; A=$(basename "$A")
+  mountpoint -q "$STORE" || { echo SEAL-FAIL-NOSTORE; exit 1; }
+  [ -f "$STORE/$A" ] || { echo "SEAL-FAIL: в хранилище нет $A"; exit 1; }
+  H=$(arc_hash "$A") || { echo SEAL-FAIL-HASH; exit 1; }
+  G=$(st_get gen); G=$(( ${G:-0} + 1 ))
+  st_put "$G" "$A" "$H" "$G" || { echo SEAL-FAIL; exit 1; }
+  echo "SEAL-OK поколение=$G слепок=$A (старые слепки не тронуты, снесёт следующий save)" ;;
+state)
+  mountpoint -q "$STORE" || { echo "хранилище не смонтировано"; exit 1; }
+  if [ -f "$ST" ]; then cat "$ST"; else echo "печати нет"; fi
+  echo "--- слепки в хранилище:"
+  ls -1 "$STORE"/qubes-backup-* 2>/dev/null | xargs -r -n1 basename || true ;;
 down)
   shift
   for v in "$@"; do qvm-shutdown --wait "$v" >/dev/null 2>&1; qvm-remove -f "$v" >/dev/null 2>&1; done
   qvm-pool remove r1 >/dev/null 2>&1
   vgchange -an rvg >/dev/null 2>&1; vgremove -f rvg >/dev/null 2>&1
   losetup -D 2>/dev/null; umount /mnt/ram 2>/dev/null
-  umount /mnt/store 2>/dev/null; vgchange -an vg1 >/dev/null 2>&1
+  umount "$STORE" 2>/dev/null; vgchange -an vg1 >/dev/null 2>&1
   cryptsetup close ghosth 2>/dev/null
   echo DOWN-OK ;;
-*) echo "ghost {up|load|air|save|down} ..." ;;
+*) echo "ghost {up|load|air|save|state|seal|down} ..." ;;
 esac

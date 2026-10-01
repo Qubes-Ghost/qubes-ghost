@@ -63,8 +63,16 @@ second is for qubes that are a bit large for memory but hold little data.
 ## The two rules
 
 Forward only. The newest save is the only valid one. Restoring an older archive
-is an error, not a recovery option. Nothing enforces this yet, it is the first
-item on the roadmap. Until then it is a rule you keep by hand.
+is an error, not a recovery option. `ghost` now enforces this: a save seals the
+new archive (generation number, name, SHA-256) and only then deletes the older
+ones, and a load accepts nothing but the sealed archive, verifies its hash
+first, and refuses if the store has been wound back behind a generation that
+was already loaded. What this stops is an accident and a swapped or modified
+archive. It does not stop someone who controls the whole volume, because the
+seal lives in the store and rolls back with it. Catching that needs a counter
+somewhere the store cannot reach, in a TPM or in Heads, and that is not built.
+Going back is still possible on purpose, with `ghost seal <archive>`, which
+takes the archive name in full and records the step as a new generation.
 
 Work in RAM with the store detached. The qubes are restored from the store into
 a pool that lives in RAM, then the store is closed and removed from the system.
@@ -86,6 +94,7 @@ split: the large things here hold public data, the secrets are small.
     scripts/ghost-teardown.sh  older separate teardown step
     scripts/ghost-ram-pool.sh  older separate RAM pool setup
     swap-guard/                detect swap, reset zram if it finds it, warn loudly
+    tests/forward-only.sh      proves the forward-only refusals, no Qubes needed
 
 `ghost` opens the store itself, you give it the passphrase. The four older
 scripts expect it already open and mounted.
@@ -103,13 +112,15 @@ changes saved back, proven on real hardware.
 One script for the whole cycle, done.
 
 Refuse to load anything but the newest archive, and prune old ones on save.
-Not done, next.
+Done. `tests/forward-only.sh` covers the refusals, including an interrupted
+save: the previous seal survives it and stays loadable.
 
-Check that restored volumes really landed in RAM and fail closed if not. Not
-done in `ghost`, the older `ghost-load.sh` does it.
+Check that restored volumes really landed in RAM and fail closed if not. Next.
+The older `ghost-load.sh` does it, `ghost` does not yet.
 
-Hash the archive and mark it complete only after verifying. Not done in
-`ghost`, the older `ghost-save.sh` does it.
+Hash the archive and mark it complete only after verifying. Done, it came with
+the forward-only work: the seal is written after the hash is taken, and the
+hash is checked again before every load.
 
 Keep only the crypto state of a messenger instead of a whole qube image.
 Not started.
@@ -146,6 +157,10 @@ where it is.
 
 A compromised dom0 defeats all of this. So does a compromised session before you
 detach the media.
+
+The forward-only seal lives in the store, so it is a guard against mistakes and
+against a tampered archive, not against an adversary who can restore an old copy
+of the whole volume.
 
 The placement checks trust what the storage stack reports. If a pool lies about
 where a volume lives, the check passes and the guarantee is gone.
