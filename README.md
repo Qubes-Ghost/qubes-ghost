@@ -1,7 +1,7 @@
 # Add-on to live mode: qubes in RAM, store detached during the session
 
 Read this first. This is a small addition on top of someone else's work, not a
-project of its own. The amnesic session it runs in is linuxuser1's live mode,
+project of its own. The amnesic session it runs in is [linuxuser1](https://forum.qubes-os.org/u/linuxuser1)'s live mode,
 start there:
 
 https://forum.qubes-os.org/t/qubes-os-live-mode-dom0-in-ram-non-persistent-boot-ram-wipe-protection-against-forensics-tails-mode-hardening-dom0-root-read-only-paranoid-security-ephemeral-encryption/38868
@@ -15,7 +15,7 @@ Experimental, and the concept changed at the end of September 2026.
 
 This project used to clean dom0 by hand. That was the wrong call. A read-only
 root with an ephemeral overlay removes the problem instead of patching it, and
-linuxuser1's thread already does that properly, so the session layer is his.
+[linuxuser1](https://forum.qubes-os.org/u/linuxuser1)'s thread already does that properly, so the session layer is his.
 
 I also said the RAM pool was gone. That was too broad and I am correcting it.
 It was only redundant as a way to make dom0 amnesic. As the place the workload
@@ -154,20 +154,20 @@ Only I have run this, on one laptop. Treat results accordingly.
 
 ## Prior art
 
-linuxuser1's live mode thread is the base this now sits on, linked at the top.
+[linuxuser1](https://forum.qubes-os.org/u/linuxuser1)'s live mode thread is the base this now sits on, linked at the top.
 
 Related threads worth reading: Qubes in tmpfs (11127), Qubes OS 100% in RAM
 (38913), ephemeral DVMs in fully ephemeral thin pools (42545).
 
-newqube pointed me at the live mode thread when I was still defending my own
-worse version. Credit for the work itself is linuxuser1's.
+[newqube](https://forum.qubes-os.org/u/newqube) pointed me at the live mode thread when I was still defending my own
+worse version. Credit for the work itself is [linuxuser1](https://forum.qubes-os.org/u/linuxuser1)'s.
 
-FranklyFlawless reviewed the code and the threat model and found real problems in
+[FranklyFlawless](https://forum.qubes-os.org/u/FranklyFlawless) reviewed the code and the threat model and found real problems in
 both. Issues 1 to 8 came out of that review.
 
 ## Contributing
 
-Bugs in the amnesic session belong in linuxuser1's thread, not here. Bugs in the
+Bugs in the amnesic session belong in [linuxuser1](https://forum.qubes-os.org/u/linuxuser1)'s thread, not here. Bugs in the
 load, save and teardown cycle belong here.
 
 ## License
