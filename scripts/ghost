@@ -1,0 +1,58 @@
+#!/bin/bash
+# ghost - цикл: скрытый том <-> кубы в оперативной памяти
+# up <фраза>            открыть том, поднять пул в ОЗУ
+# load <архив> <кубы..> восстановить кубы из тома в ОЗУ
+# air                   закрыть том (работа без хранилища в системе)
+# save <фраза> <кубы..> открыть том и сохранить кубы в него
+# down <кубы..>         снести кубы, пул и всё закрыть
+set -u
+D=/dev/qubes_dom0/data
+BP=/root/.ghost.bp
+open_vol(){ [ -e /dev/mapper/ghosth ] && return 0
+  printf '%s' "$1" | cryptsetup --type tcrypt --veracrypt --tcrypt-hidden open "$D" ghosth --key-file=- || return 1
+  vgchange -ay vg1 >/dev/null; }
+mount_store(){ mkdir -p /mnt/store; mountpoint -q /mnt/store || mount /dev/vg1/store /mnt/store; }
+fix_rpool(){ vgchange -an rvg >/dev/null 2>&1; vgchange -ay rvg >/dev/null 2>&1; }
+case "${1:-}" in
+up)
+  open_vol "${2:?нужна фраза}" || { echo UP-FAIL-OPEN; exit 1; }
+  mount_store
+  mkdir -p /mnt/ram
+  mountpoint -q /mnt/ram || mount -t tmpfs -o size=40G tmpfs /mnt/ram
+  [ -f /mnt/ram/d.img ] || truncate -s 38G /mnt/ram/d.img
+  L=$(losetup -j /mnt/ram/d.img | cut -d: -f1)
+  [ -n "$L" ] || L=$(losetup -f --show /mnt/ram/d.img)
+  vgs rvg >/dev/null 2>&1 || { pvcreate -ff -y "$L" >/dev/null; vgcreate rvg "$L" >/dev/null; lvcreate -l 95%FREE -T rvg/rpool >/dev/null; }
+  fix_rpool
+  qvm-pool list | grep -qw r1 || qvm-pool add r1 lvm_thin -o volume_group=rvg -o thin_pool=rpool -o revisions_to_keep=1 >/dev/null
+  echo UP-OK ;;
+load)
+  A="${2:?нужен архив}"; shift 2
+  fix_rpool
+  OLD=$(qubes-prefs default_pool); echo "$OLD" > /run/ghost.oldpool
+  qubes-prefs default_pool r1
+  qvm-backup-restore --passphrase-file="$BP" "$A" "$@"; R=$?
+  qubes-prefs default_pool "$OLD"
+  [ $R -eq 0 ] && echo LOAD-OK || echo LOAD-FAIL ;;
+air)
+  umount /mnt/store 2>/dev/null
+  vgchange -an vg1 >/dev/null 2>&1
+  cryptsetup close ghosth 2>/dev/null
+  [ -e /dev/mapper/ghosth ] && { echo AIR-FAIL; exit 1; }
+  echo AIR-OK ;;
+save)
+  open_vol "${2:?нужна фраза}" || { echo SAVE-FAIL-OPEN; exit 1; }
+  shift 2; mount_store
+  for v in "$@"; do qvm-shutdown --wait "$v" >/dev/null 2>&1; done
+  qvm-backup --yes --passphrase-file="$BP" /mnt/store "$@" && echo SAVE-OK || echo SAVE-FAIL ;;
+down)
+  shift
+  for v in "$@"; do qvm-shutdown --wait "$v" >/dev/null 2>&1; qvm-remove -f "$v" >/dev/null 2>&1; done
+  qvm-pool remove r1 >/dev/null 2>&1
+  vgchange -an rvg >/dev/null 2>&1; vgremove -f rvg >/dev/null 2>&1
+  losetup -D 2>/dev/null; umount /mnt/ram 2>/dev/null
+  umount /mnt/store 2>/dev/null; vgchange -an vg1 >/dev/null 2>&1
+  cryptsetup close ghosth 2>/dev/null
+  echo DOWN-OK ;;
+*) echo "ghost {up|load|air|save|down} ..." ;;
+esac

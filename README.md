@@ -13,11 +13,13 @@ work, and are only ever saved forward.
 
 Experimental, and the concept changed at the end of September 2026.
 
-This project used to build its own RAM pool and clean dom0 afterwards. That was
-the wrong call. A read-only root with an ephemeral overlay removes the problem
-instead of patching it, and linuxuser1's thread already does that properly. The
-separate pool is gone. The scripts here are being reworked to run inside that
-session. Interfaces will change. Do not put anything you cannot lose on it yet.
+This project used to clean dom0 by hand. That was the wrong call. A read-only
+root with an ephemeral overlay removes the problem instead of patching it, and
+linuxuser1's thread already does that properly, so the session layer is his.
+
+I also said the RAM pool was gone. That was too broad and I am correcting it.
+It was only redundant as a way to make dom0 amnesic. As the place the workload
+runs it is the point of this repo, and it is back.
 
 ## Why a layer on top is needed at all
 
@@ -42,16 +44,25 @@ Forward only. The newest save is the only valid one. Restoring an older archive
 is treated as an error, not as a recovery option. `ghost-save.sh` refuses to
 write an archive older than the one on the volume.
 
-Air gap during work. The media is attached for the load, then physically
-removed. You work with it out of the machine. It goes back in for the save. A
-compromise inside a running qube has nothing to reach for.
+Work in RAM with the store detached. The qubes are restored from the store into
+a pool that lives in RAM, then the store is closed and removed from the system.
+You work with it gone. It comes back only for the save. During the session the
+disk sees nothing and a compromise inside a running qube has nothing to reach
+for.
+
+This costs one constraint. Qubes that work this way must be standalone, or their
+template has to be in RAM too. If the template stays in the store you cannot
+close the store, because the qube loses its root. Anything too large for RAM, a
+chain node for instance, runs the other way, with the store open. That is a fair
+split: the large things here hold public data, the secrets are small.
 
 ## What is here
 
-    scripts/ghost-load.sh      restore qubes from the volume into the session
-    scripts/ghost-save.sh      save them back, forward only, with a manifest
-    scripts/ghost-teardown.sh  remove the qubes and the pool, verify nothing left
-    scripts/ghost-ram-pool.sh  the old separate pool, kept until the rework lands
+    scripts/ghost              the cycle in one script, see below
+    scripts/ghost-load.sh      older separate restore step
+    scripts/ghost-save.sh      older separate save step
+    scripts/ghost-teardown.sh  older separate teardown step
+    scripts/ghost-ram-pool.sh  older separate RAM pool setup
     swap-guard/                refuse to run if swap is enabled, and say so loudly
 
 The scripts take an already opened volume. Open it in the vault and point them

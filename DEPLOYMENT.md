@@ -54,7 +54,23 @@ an empty directory called `qubes` inside it, close it again.
 
     vault> mkdir -p /mnt/vault/qubes
 
-## A session
+## A session, the short way
+
+One script does the whole cycle.
+
+    dom0$ sudo ghost up <passphrase>          open the store, bring up the RAM pool
+    dom0$ sudo ghost load <archive> <qubes>   restore them into RAM
+    dom0$ sudo ghost air                      close the store, work with it gone
+    dom0$ sudo ghost save <passphrase> <qubes>  put it back open and save
+    dom0$ sudo ghost down <qubes>             remove everything, close everything
+
+Two things it handles that bit me when I did it by hand. The thin pool in RAM
+has to be deactivated and activated again before a restore, otherwise LVM
+refuses with "prohibited while rpool_tmeta is active". And qvm-backup-restore
+has no option for which pool to restore into, so the default pool is switched
+to the RAM pool for the duration and put back afterwards.
+
+## A session, step by step
 
 ### Load
 
