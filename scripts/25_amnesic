@@ -1,0 +1,88 @@
+#!/bin/bash
+# 25_amnesic - add amnesic boot entries by cloning the system's own entry.
+#
+# Drop this into /etc/grub.d/ and run the distribution's grub config update.
+# It adds one extra boot entry per amnesic mode, next to the normal ones.
+#
+# Why clone instead of generate:
+#
+# A hand-written generator has to work out, by itself, the name of the
+# encrypted root device, the hypervisor image, how much memory dom0 gets, how
+# the firmware should locate the boot partition, and the module load order. Get
+# any one of those wrong and the entry dies before it can ask for a passphrase
+# - a black screen with nothing to type into. The guesses that are right on the
+# author's machine are not right on yours.
+#
+# So this script does not generate an entry at all. It runs the generator the
+# distribution already uses, takes the entry that machine boots from today, and
+# changes exactly two things: the title, and one extra word on the kernel
+# command line. Everything else is inherited verbatim. Whatever boots normally
+# on this machine boots in amnesic mode too, because it is the same entry.
+#
+# This also means the entries are rebuilt correctly after every kernel update,
+# because they are rebuilt from whatever the distribution produces at that
+# moment - no stale device names are left behind.
+#
+# Scope: this handles the boot entries only. The modes themselves are
+# implemented by an initramfs module, which must already be installed - see the
+# project that provides it. If that module is absent the extra word is ignored
+# and the machine boots normally, so a missing module cannot lock you out.
+#
+# MODES is the list of kernel words to offer, one entry each. Override it from
+# the environment if the initramfs module you use names its modes differently.
+set -u
+
+MODES=${MODES:-"rootzram ramovl cryptovl"}
+PREFIX=${PREFIX:-"Amnesic"}
+
+# The generator that actually produces the entries here. On a hypervisor-based
+# system the plain Linux generator also produces entries, but they are not what
+# the machine boots - so the hypervisor ones are tried first.
+GRUBD=${GRUBD:-/etc/grub.d}
+GENERATORS=${GENERATORS:-"20_linux_xen 10_linux_xen 20_linux 10_linux"}
+
+source_entry() {
+    local g out
+    for g in $GENERATORS; do
+        [ -x "$GRUBD/$g" ] || continue
+        out=$("$GRUBD/$g" 2>/dev/null) || continue
+        [ -n "$out" ] || continue
+        # the first top-level menuentry, taken whole by balancing braces
+        printf '%s\n' "$out" | awk '
+            !started && /^menuentry / { started = 1 }
+            started {
+                print
+                n += gsub(/\{/, "{")
+                n -= gsub(/\}/, "}")
+                if (n == 0) exit
+            }
+        '
+        return 0
+    done
+    return 1
+}
+
+ENTRY=$(source_entry) || true
+if [ -z "${ENTRY:-}" ]; then
+    echo "25_amnesic: found no boot entry to clone, skipping" >&2
+    exit 0
+fi
+
+for mode in $MODES; do
+    printf '%s\n' "$ENTRY" | awk -v mode="$mode" -v title="$PREFIX: $mode" '
+        NR == 1 {
+            # retitle, and give the clone an id of its own so it cannot collide
+            sub(/^menuentry[[:space:]]+(\047[^\047]*\047|"[^"]*")/, \
+                "menuentry \047" title "\047")
+            sub(/\$menuentry_id_option[[:space:]]+(\047[^\047]*\047|"[^"]*")/, \
+                "$menuentry_id_option \047amnesic-" mode "\047")
+        }
+        # The kernel line, and only it. The initramfs is loaded by a line of the
+        # same form, so match on the image name rather than on the keyword.
+        /vmlinu[xz]/ && /^[[:space:]]*(module2|module|linux16|linuxefi|linux)[[:space:]]/ {
+            print $0 " " mode
+            next
+        }
+        { print }
+    '
+done
