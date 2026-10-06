@@ -35,6 +35,10 @@ set -u
 MODES=${MODES:-"rootzram ramovl cryptovl"}
 PREFIX=${PREFIX:-"Amnesic"}
 
+# Prefix for the generated menu entry ids. Change it when you run this script a
+# second time with different settings, so the two sets cannot collide.
+IDPFX=${IDPFX:-amnesic}
+
 # Memory for dom0 in the cloned entries only. A RAM-backed root lives inside
 # dom0's memory, so the stock allowance (often 4096M) fills up and the kernel
 # starts killing processes - the desktop loses its menu and tray while the
@@ -98,13 +102,13 @@ if [ -z "${ENTRY:-}" ]; then
 fi
 
 for mode in $MODES; do
-    printf '%s\n' "$ENTRY" | awk -v mode="$mode" -v title="$PREFIX: $mode" -v dmem="$DOM0_MEM" '
+    printf '%s\n' "$ENTRY" | awk -v mode="$mode" -v title="$PREFIX: $mode" -v dmem="$DOM0_MEM" -v idp="$IDPFX" '
         NR == 1 {
             # retitle, and give the clone an id of its own so it cannot collide
             sub(/^menuentry[[:space:]]+(\047[^\047]*\047|"[^"]*")/, \
                 "menuentry \047" title "\047")
             sub(/\$menuentry_id_option[[:space:]]+(\047[^\047]*\047|"[^"]*")/, \
-                "$menuentry_id_option \047amnesic-" mode "\047")
+                "$menuentry_id_option \047" idp "-" mode "\047")
         }
         # the hypervisor line: raise dom0 memory if asked
         dmem != "" && /dom0_mem=max:/ {

@@ -1,0 +1,25 @@
+#!/bin/bash
+# 26_amnesic_pool - a second amnesic profile, for sessions that keep the qube
+# pool in RAM as well as the root.
+#
+# A plain amnesic session only has to fit dom0's own root in memory. A session
+# that also builds its pool there has to fit the templates it carries, and those
+# are the expensive part - a template is gigabytes where a qube's own data is
+# usually tens of megabytes. So this profile asks for a much larger dom0.
+#
+# Only the RAM-backed root mode is offered: an on-disk overlay defeats the point
+# of carrying the pool in memory.
+#
+# Half the machine, kept within 16G..48G. Half is deliberate: the pool and dom0
+# live inside that share, the running qubes live outside it, and both need room.
+set -u
+total=$(xl info 2>/dev/null | awk '/^total_memory/ {print $3; exit}')
+case "${total:-}" in
+    ''|*[!0-9]*) echo "26_amnesic_pool: cannot read total memory, skipping" >&2; exit 0 ;;
+esac
+h=$(( total / 2 ))
+[ "$h" -lt 16384 ] && h=16384
+[ "$h" -gt 49152 ] && h=49152
+
+exec env MODES=rootzram PREFIX="Amnesic+RAM pool" IDPFX=amnpool DOM0_MEM="${h}M" \
+     /etc/grub.d/25_amnesic
