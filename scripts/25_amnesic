@@ -35,13 +35,32 @@ set -u
 MODES=${MODES:-"rootzram ramovl cryptovl"}
 PREFIX=${PREFIX:-"Amnesic"}
 
-# Memory for dom0 in the cloned entries only. Leave empty to inherit whatever
-# the normal entry uses. A RAM-backed root lives inside dom0's memory, so the
-# stock allowance (often 4096M) fills up and the kernel starts killing
-# processes - the desktop loses its menu and tray while the system itself
-# stays up. Give the amnesic entries room: a value like 24576M on a 64 GB
-# machine, leaving the rest for the qubes. Only the max: figure is rewritten.
+# Memory for dom0 in the cloned entries only. A RAM-backed root lives inside
+# dom0's memory, so the stock allowance (often 4096M) fills up and the kernel
+# starts killing processes - the desktop loses its menu and tray while the
+# system itself stays up.
+#
+#   auto       a quarter of the machine's memory, kept within 8G..32G
+#   <value>    used as given, e.g. 24576M
+#   empty      inherit whatever the normal entry uses (no change)
+#
+# A quarter is a deliberate compromise: the root and a session's writes have
+# to fit, while the qubes still need the rest. Note that dom0 cannot see how
+# much memory the machine has - it only sees its own share - so the figure
+# comes from the hypervisor. Only the max: figure is rewritten.
 DOM0_MEM=${DOM0_MEM:-}
+
+if [ "$DOM0_MEM" = auto ]; then
+    total=$(xl info 2>/dev/null | awk '/^total_memory/ {print $3; exit}')
+    case "${total:-}" in
+        ''|*[!0-9]*) echo "25_amnesic: cannot read total memory, leaving dom0_mem alone" >&2
+                     DOM0_MEM= ;;
+        *) q=$(( total / 4 ))
+           [ "$q" -lt 8192 ] && q=8192
+           [ "$q" -gt 32768 ] && q=32768
+           DOM0_MEM="${q}M" ;;
+    esac
+fi
 
 # The generator that actually produces the entries here. On a hypervisor-based
 # system the plain Linux generator also produces entries, but they are not what
