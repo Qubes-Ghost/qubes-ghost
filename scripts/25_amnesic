@@ -41,14 +41,16 @@ PREFIX=${PREFIX:-"Amnesic"}
 # system itself stays up.
 #
 #   auto       a quarter of the machine's memory, kept within 8G..32G
+#              (the default: without it these entries boot into a dom0 too
+#              small to hold their own root, which is not a useful default)
 #   <value>    used as given, e.g. 24576M
-#   empty      inherit whatever the normal entry uses (no change)
+#   empty      inherit whatever the normal entry uses, changing nothing
 #
 # A quarter is a deliberate compromise: the root and a session's writes have
 # to fit, while the qubes still need the rest. Note that dom0 cannot see how
 # much memory the machine has - it only sees its own share - so the figure
 # comes from the hypervisor. Only the max: figure is rewritten.
-DOM0_MEM=${DOM0_MEM:-}
+DOM0_MEM=${DOM0_MEM-auto}
 
 if [ "$DOM0_MEM" = auto ]; then
     total=$(xl info 2>/dev/null | awk '/^total_memory/ {print $3; exit}')
