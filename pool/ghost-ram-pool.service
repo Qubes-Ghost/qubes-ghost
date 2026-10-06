@@ -1,5 +1,8 @@
 [Unit]
 Description=Build the RAM-backed qube pool for this boot profile
+# The marker word on the kernel command line is what makes this a profile and
+# not a permanent change: the ordinary boot entries do not carry it, so this
+# unit simply does not run there.
 ConditionKernelCommandLine=ghostpool
 After=qubesd.service
 Requires=qubesd.service
@@ -9,7 +12,10 @@ Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/sbin/ghost-ram-pool.sh
 ExecStop=/usr/local/sbin/ghost-ram-pool-down.sh
-TimeoutStopSec=120
+# Teardown shuts every qube down first, which is the slow part. Too short a
+# timeout here kills it halfway and leaves a live volume group over a backing
+# store that is about to disappear.
+TimeoutStopSec=300
 
 [Install]
 WantedBy=multi-user.target

@@ -3,38 +3,83 @@
 #
 # Nothing here is needed for secrecy: the pool lives in RAM and is gone at power
 # off either way. It exists so a reboot does not hang on a volume group whose
-# backing store is about to disappear, and so the pool can be rebuilt without
-# rebooting while testing.
+# backing store is about to vanish, and so the pool can be rebuilt while testing
+# without rebooting.
 #
-# Every step is best effort on purpose. A machine must always be able to shut
-# down, so a layer that is already gone, or refuses to go, must not stop the
-# rest.
-set -u
+# Two rules, both learned the hard way:
+#
+#   - act only on what this machine's own state file says this setup created,
+#     and only after checking it really is ours. A teardown that trusts a name
+#     can destroy an unrelated volume group that happens to be called the same.
+#   - if a layer refuses to go, stop. Deleting the backing file while the loop
+#     device is still attached leaves a live device over a deleted inode that
+#     nothing can find afterwards.
+#
+# It never blocks a shutdown: it reports failure with an exit code instead.
+set -uo pipefail
 
-MNT=${MNT:-/var/lib/qubes/ghost-pool}
-IMG=$MNT/pool.img
-VG=${VG:-ghostvg}
-POOL=${POOL:-ghost}
+STATE=${STATE:-/run/ghost-ram-pool.state}
 
-[ "$(id -u)" = 0 ] || { echo "run this as root" >&2; exit 1; }
+log()  { echo "ghost-ram-pool-down: $*"; }
+fail() { echo "ERROR: $*" >&2; exit 1; }
 
-# qubes still placed in the pool would keep its volumes busy
-qvm-shutdown --wait --all >/dev/null 2>&1 || true
+[ "$(id -u)" = 0 ] || fail "run this as root"
 
-qvm-pool remove "$POOL" >/dev/null 2>&1 || true
-vgchange -an "$VG" >/dev/null 2>&1 || true
-vgremove -f "$VG" >/dev/null 2>&1 || true
+if [ ! -e "$STATE" ]; then
+    log "no state file, nothing of ours to take apart"
+    exit 0
+fi
+# shellcheck disable=SC1090
+. "$STATE"
 
-LOOP=$(losetup -j "$IMG" 2>/dev/null | cut -d: -f1)
-if [ -n "${LOOP:-}" ]; then
-    pvremove -ff -y "$LOOP" >/dev/null 2>&1 || true
-    losetup -d "$LOOP" >/dev/null 2>&1 || true
+# ------------------------------------------------------------- provenance ----
+# Everything below is destructive, so each fact is checked before it is used.
+if vgs --noheadings -o vg_name 2>/dev/null | grep -qw "$VG"; then
+    PVCOUNT=$(vgs --noheadings -o pv_count "$VG" | tr -d ' ')
+    [ "$PVCOUNT" = 1 ] ||
+        fail "$VG spans $PVCOUNT physical volumes, expected one - not touching it"
+    PVNAME=$(pvs --noheadings -o pv_name --select "vg_name=$VG" | tr -d ' ')
+    [ "$PVNAME" = "$DEV" ] ||
+        fail "$VG sits on $PVNAME, not on our $DEV - not touching it"
+    NOWUUID=$(pvs --noheadings -o pv_uuid "$DEV" 2>/dev/null | tr -d ' ')
+    [ "$NOWUUID" = "$PVUUID" ] ||
+        fail "$DEV carries a different physical volume now - not touching it"
+fi
+if [ "$BACKEND" = loop ] && [ -n "${LOOP:-}" ]; then
+    BACKING=$(losetup --noheadings -O BACK-FILE "$LOOP" 2>/dev/null | tr -d ' ')
+    [ -z "$BACKING" ] || [ "$BACKING" = "$IMG" ] ||
+        fail "$LOOP is backed by $BACKING, not by our $IMG - not touching it"
 fi
 
-rm -f "$IMG"
-umount "$MNT" >/dev/null 2>&1 || true
+# ------------------------------------------------------------- unwinding -----
+# Qubes first: a running qube holds its volumes open.
+qvm-shutdown --wait --all >/dev/null 2>&1 || true
+qvm-pool remove "$POOL" >/dev/null 2>&1 || true
+qvm-pool list 2>/dev/null | grep -qw "$POOL" && fail "qube pool $POOL is still registered"
 
-# put dom0's own swap back the way the distribution had it
-systemctl unmask swap.target systemd-zram-setup@zram0.service >/dev/null 2>&1 || true
+if vgs --noheadings -o vg_name 2>/dev/null | grep -qw "$VG"; then
+    vgchange -an "$VG" >/dev/null 2>&1 || fail "cannot deactivate $VG - stopping here"
+    lvs --noheadings -o lv_attr "$VG" 2>/dev/null | grep -q '^ *....a' &&
+        fail "$VG still has active volumes - stopping here"
+fi
 
-mountpoint -q "$MNT" && echo "note: $MNT is still mounted" || echo "pool torn down"
+if [ "$BACKEND" = loop ] && [ -n "${LOOP:-}" ] && losetup "$LOOP" >/dev/null 2>&1; then
+    losetup -d "$LOOP" >/dev/null 2>&1 || fail "cannot detach $LOOP - stopping here"
+fi
+[ -n "${DEV:-}" ] && lvmdevices --deldev "$DEV" >/dev/null 2>&1
+
+if [ "$BACKEND" = brd ]; then
+    rmmod brd >/dev/null 2>&1 ||
+        log "note: brd stayed loaded; its pages are freed at power off anyway"
+else
+    rm -f "$IMG"
+    umount "$MNT" >/dev/null 2>&1 || true
+    mountpoint -q "$MNT" && fail "$MNT is still mounted"
+fi
+
+# --------------------------------------------------- only now, swap policy ---
+# Restored after a verified teardown, never before, and only if we changed it.
+[ "${SWAP_WAS:-}" = on ] && swapon -a >/dev/null 2>&1
+
+rm -f "$STATE"
+log "pool torn down and verified"
