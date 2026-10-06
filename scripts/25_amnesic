@@ -39,6 +39,11 @@ PREFIX=${PREFIX:-"Amnesic"}
 # second time with different settings, so the two sets cannot collide.
 IDPFX=${IDPFX:-amnesic}
 
+# Extra words to append to the kernel command line of the cloned entries. Useful
+# as a marker a service can key off: systemd's ConditionKernelCommandLine can
+# then start something in this profile only, with no scripting of its own.
+EXTRA=${EXTRA:-}
+
 # Memory for dom0 in the cloned entries only. A RAM-backed root lives inside
 # dom0's memory, so the stock allowance (often 4096M) fills up and the kernel
 # starts killing processes - the desktop loses its menu and tray while the
@@ -102,7 +107,7 @@ if [ -z "${ENTRY:-}" ]; then
 fi
 
 for mode in $MODES; do
-    printf '%s\n' "$ENTRY" | awk -v mode="$mode" -v title="$PREFIX: $mode" -v dmem="$DOM0_MEM" -v idp="$IDPFX" '
+    printf '%s\n' "$ENTRY" | awk -v mode="$mode" -v title="$PREFIX: $mode" -v dmem="$DOM0_MEM" -v idp="$IDPFX" -v extra="$EXTRA" '
         NR == 1 {
             # retitle, and give the clone an id of its own so it cannot collide
             sub(/^menuentry[[:space:]]+(\047[^\047]*\047|"[^"]*")/, \
@@ -117,7 +122,9 @@ for mode in $MODES; do
         # The kernel line, and only it. The initramfs is loaded by a line of the
         # same form, so match on the image name rather than on the keyword.
         /vmlinu[xz]/ && /^[[:space:]]*(module2|module|linux16|linuxefi|linux)[[:space:]]/ {
-            print $0 " " mode
+            line = $0 " " mode
+            if (extra != "") line = line " " extra
+            print line
             next
         }
         { print }

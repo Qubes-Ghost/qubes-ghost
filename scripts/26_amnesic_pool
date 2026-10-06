@@ -21,5 +21,7 @@ h=$(( total / 2 ))
 [ "$h" -lt 16384 ] && h=16384
 [ "$h" -gt 49152 ] && h=49152
 
-exec env MODES=rootzram PREFIX="Amnesic+RAM pool" IDPFX=amnpool DOM0_MEM="${h}M" \
+# The marker word lets a service start in this profile only, via systemd's
+# ConditionKernelCommandLine, without the service having to inspect anything.
+exec env MODES=rootzram PREFIX="Amnesic+RAM pool" IDPFX=amnpool EXTRA=ghostpool DOM0_MEM="${h}M" \
      /etc/grub.d/25_amnesic
