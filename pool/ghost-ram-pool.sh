@@ -73,7 +73,12 @@ unwind() {
     rm -f "$STATE"
     echo "ghost-ram-pool: rolled back what this run created" >&2
 }
-trap unwind ERR
+
+# On EXIT, not on ERR. Every failure here goes through die(), which calls exit,
+# and exit does not fire an ERR trap - so an ERR trap would quietly never run and
+# leave the half-built stack behind. That is exactly what happened the first time.
+DONE_OK=0
+trap 'rc=$?; [ "$DONE_OK" = 1 ] || unwind; exit $rc' EXIT
 
 [ "$(id -u)" = 0 ] || die "run this as root"
 [ -e "$STATE" ] && die "$STATE exists - a pool is already set up, tear it down first"
@@ -209,6 +214,6 @@ POOL=$POOL
 SWAP_WAS=$SWAP_WAS
 EOF
 
-trap - ERR
+DONE_OK=1
 SIZE_H=$(lvs --noheadings -o lv_size "$VG/$TP" | tr -d ' ')
 log "pool '$POOL' ready: $SIZE_H in RAM on $BACKEND, nothing on disk"
