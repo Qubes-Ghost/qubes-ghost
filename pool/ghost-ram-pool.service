@@ -1,7 +1,5 @@
 [Unit]
 Description=Build the RAM-backed qube pool for this boot profile
-# Starts only in the boot entry whose kernel command line carries this word, so
-# the ordinary profiles are untouched and the unit needs no logic of its own.
 ConditionKernelCommandLine=ghostpool
 After=qubesd.service
 Requires=qubesd.service
@@ -10,6 +8,8 @@ Requires=qubesd.service
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/sbin/ghost-ram-pool.sh
+ExecStop=/usr/local/sbin/ghost-ram-pool-down.sh
+TimeoutStopSec=120
 
 [Install]
 WantedBy=multi-user.target
