@@ -10,8 +10,10 @@
 # Only the RAM-backed root mode is offered: an on-disk overlay defeats the point
 # of carrying the pool in memory.
 #
-# Half the machine, kept within 16G..48G. Half is deliberate: the pool and dom0
+# Half the machine, with a floor of 16G. Half is deliberate: the pool and dom0
 # live inside that share, the running qubes live outside it, and both need room.
+# There is no ceiling - on a large machine half is still the right split, and
+# capping it would only leave memory idle on one side of the line.
 set -u
 total=$(xl info 2>/dev/null | awk '/^total_memory/ {print $3; exit}')
 case "${total:-}" in
@@ -19,7 +21,6 @@ case "${total:-}" in
 esac
 h=$(( total / 2 ))
 [ "$h" -lt 16384 ] && h=16384
-[ "$h" -gt 49152 ] && h=49152
 
 # The marker word lets a service start in this profile only, via systemd's
 # ConditionKernelCommandLine, without the service having to inspect anything.
