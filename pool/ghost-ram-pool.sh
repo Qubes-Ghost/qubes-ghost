@@ -155,10 +155,14 @@ MADE_VG=1
 
 lvcreate --type thin-pool --name "$TP" --extents "${DATA_PCT}%FREE" \
          --chunksize "$CHUNK" --poolmetadatasize "$META_SIZE" --poolmetadataspare y \
-         --discards passdown --errorwhenfull y "$VG" >/dev/null ||
+         --discards passdown "$VG" >/dev/null ||
     die "cannot create the thin pool"
 
-# fail fast rather than queueing writes for a minute when the pool fills
+# Fail fast rather than queueing writes for a minute when the pool fills. This is
+# a property of the pool, not of its creation: lvcreate rejects the option, it
+# has to be set afterwards.
+lvchange --errorwhenfull y "$VG/$TP" >/dev/null || die "cannot set error-when-full"
+
 lvs --noheadings -o whenfull "$VG/$TP" | grep -qw error ||
     die "thin pool is not set to error when full"
 lvs --noheadings -o segtype "$VG/$TP" | grep -qw thin-pool ||
