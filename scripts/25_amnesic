@@ -35,6 +35,14 @@ set -u
 MODES=${MODES:-"rootzram ramovl cryptovl"}
 PREFIX=${PREFIX:-"Amnesic"}
 
+# Memory for dom0 in the cloned entries only. Leave empty to inherit whatever
+# the normal entry uses. A RAM-backed root lives inside dom0's memory, so the
+# stock allowance (often 4096M) fills up and the kernel starts killing
+# processes - the desktop loses its menu and tray while the system itself
+# stays up. Give the amnesic entries room: a value like 24576M on a 64 GB
+# machine, leaving the rest for the qubes. Only the max: figure is rewritten.
+DOM0_MEM=${DOM0_MEM:-}
+
 # The generator that actually produces the entries here. On a hypervisor-based
 # system the plain Linux generator also produces entries, but they are not what
 # the machine boots - so the hypervisor ones are tried first.
@@ -69,13 +77,17 @@ if [ -z "${ENTRY:-}" ]; then
 fi
 
 for mode in $MODES; do
-    printf '%s\n' "$ENTRY" | awk -v mode="$mode" -v title="$PREFIX: $mode" '
+    printf '%s\n' "$ENTRY" | awk -v mode="$mode" -v title="$PREFIX: $mode" -v dmem="$DOM0_MEM" '
         NR == 1 {
             # retitle, and give the clone an id of its own so it cannot collide
             sub(/^menuentry[[:space:]]+(\047[^\047]*\047|"[^"]*")/, \
                 "menuentry \047" title "\047")
             sub(/\$menuentry_id_option[[:space:]]+(\047[^\047]*\047|"[^"]*")/, \
                 "$menuentry_id_option \047amnesic-" mode "\047")
+        }
+        # the hypervisor line: raise dom0 memory if asked
+        dmem != "" && /dom0_mem=max:/ {
+            gsub(/dom0_mem=max:[0-9]+[KMGkmg]?/, "dom0_mem=max:" dmem)
         }
         # The kernel line, and only it. The initramfs is loaded by a line of the
         # same form, so match on the image name rather than on the keyword.
