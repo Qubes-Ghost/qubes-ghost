@@ -1,0 +1,44 @@
+#!/bin/bash
+# ghost-open - open the removable carrier and bring its volume group up.
+#
+# Everything the user has to remember is the passphrase. The script finds the
+# encrypted partition itself, so there is no long command to mistype at a
+# terminal that is often reached through a KVM.
+#
+# The passphrase is read from the terminal with echo off and is never passed as
+# an argument, never written to a file and never printed. That matters more than
+# it looks: a passphrase typed as part of a command is visible in the process
+# list, in shell history, and - when the machine is driven through a remote KVM -
+# in whatever sees the keystrokes and in any screenshot of the session.
+set -u
+
+die() { echo "ghost-open: $*" >&2; exit 1; }
+
+[ -t 0 ] || die "refusing to read the passphrase from anything but a terminal"
+
+# the carrier is the encrypted partition that is not already open
+PART=$(lsblk -rno NAME,FSTYPE | awk '/crypto_LUKS/ {print $1}' | while read -r p; do
+    cryptsetup status "luks-$(blkid -s UUID -o value "/dev/$p" 2>/dev/null)" >/dev/null 2>&1 || echo "$p"
+done | head -1)
+[ -n "${PART:-}" ] || die "no closed encrypted partition found - already open, or no carrier inserted"
+
+UUID=$(blkid -s UUID -o value "/dev/$PART") || die "cannot read the partition UUID"
+NAME="luks-$UUID"
+echo "ghost-open: carrier /dev/$PART"
+
+# -s: no echo. The passphrase stays in one shell variable and is piped straight
+# into cryptsetup, so it never becomes an argument.
+printf 'passphrase: ' >&2
+read -rs PASS
+echo >&2
+
+printf '%s' "$PASS" | cryptsetup open --key-file=- "/dev/$PART" "$NAME" || {
+    PASS=; die "wrong passphrase, or the carrier is not what we think it is"
+}
+PASS=
+
+VG=$(pvs --noheadings -o vg_name "/dev/mapper/$NAME" 2>/dev/null | tr -d ' ')
+[ -n "${VG:-}" ] || die "opened, but no volume group on it"
+vgchange -ay "$VG" >/dev/null || die "cannot activate $VG"
+
+echo "ghost-open: $VG is up ($(lvs --noheadings "$VG" | wc -l) volumes)"

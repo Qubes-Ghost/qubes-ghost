@@ -1,0 +1,57 @@
+#!/bin/bash
+# ghost-close - release the removable carrier so it can be physically removed.
+#
+# Order matters and each step is checked, because a half-finished release looks
+# exactly like a finished one: the desktop keeps working either way, and the
+# carrier appears idle while something still holds it. The only honest answer
+# comes from asking the kernel, not from the absence of errors.
+#
+# What it does, innermost first: shut the qubes that live on the carrier, unmount
+# whatever is mounted from it, deactivate its volume group, close the encrypted
+# container. It stops at the first step that does not complete.
+set -u
+
+die() { echo "ghost-close: $*" >&2; exit 1; }
+
+NAME=$(ls /dev/mapper 2>/dev/null | grep '^luks-' | head -1)
+[ -n "${NAME:-}" ] || { echo "ghost-close: nothing open, carrier is already free"; exit 0; }
+
+VG=$(pvs --noheadings -o vg_name "/dev/mapper/$NAME" 2>/dev/null | tr -d ' ')
+PART=$(cryptsetup status "$NAME" | awk '/device:/ {print $2}')
+DISK=$(lsblk -no pkname "$PART" 2>/dev/null | head -1)
+
+# anything still running from the carrier has to go first
+if [ -n "${VG:-}" ]; then
+    for vm in $(qvm-ls --raw-data --fields NAME,STATE 2>/dev/null | grep -v Halted | cut -d'|' -f1); do
+        [ "$vm" = dom0 ] && continue
+        POOL=$(qvm-volume info "$vm:root" 2>/dev/null | awk '/^pool/ {print $2}')
+        case "$POOL" in
+            ''|ghost) continue ;;
+            *) echo "ghost-close: shutting $vm (its root is in pool $POOL)"
+               qvm-shutdown --wait --timeout 60 "$vm" >/dev/null 2>&1 ;;
+        esac
+    done
+fi
+
+# Unmount in reverse depth order, so /boot/efi goes before /boot.
+# Not a pipeline: a `while read` on the right of a pipe runs in a subshell, where
+# an exit only ends the subshell and the script sails on past a failed unmount.
+MOUNTS=$(findmnt -rno TARGET,SOURCE | awk -v d="/dev/$DISK" '$2 ~ d {print $1}' | sort -r)
+for m in $MOUNTS; do
+    umount "$m" || die "cannot unmount $m - something is still using it"
+    echo "ghost-close: unmounted $m"
+done
+
+if [ -n "${VG:-}" ]; then
+    vgchange -an "$VG" >/dev/null 2>&1 || die "cannot deactivate $VG"
+    echo "ghost-close: $VG deactivated"
+fi
+
+cryptsetup close "$NAME" || die "cannot close $NAME"
+
+# ask the kernel rather than trusting the absence of errors
+[ -z "$(ls /dev/mapper | grep '^luks-')" ] || die "an encrypted container is still open"
+[ "$(findmnt -rno SOURCE | grep -c "${DISK:-__none__}")" = 0 ] ||
+    die "something is still mounted from the carrier"
+
+echo "ghost-close: carrier released - safe to remove"
